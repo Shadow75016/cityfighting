@@ -1,7 +1,8 @@
 streamlit
 pandas
-numpy
 requests
+geopandas
+shapely
 folium
-plotly>=5.14.1
 streamlit-folium
+plotly
