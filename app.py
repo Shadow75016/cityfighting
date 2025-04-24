@@ -420,7 +420,7 @@ if data_ville1 and data_ville2:
     # Ajouter un bloc de fond pour le titre avec une largeur maximisée
     st.markdown("""
     <div style="text-align: center; padding: 20px; background-color: #2b2b2b; border-radius: 15px; box-shadow: 0 0 15px rgba(0, 0, 0, 0.5); width: 100%; margin-bottom: 20px;">
-        <h2 style="color: white; font-size: 30px;">📊 Comparaison des indicateurs de logement entre les deux villes </h2>
+        <h2 style="color: white; font-size: 30px;">📊 Comparaison des indicateurs de logement entre les deux villes (données de 2023) </h2>
     </div>
     """, unsafe_allow_html=True)
 
