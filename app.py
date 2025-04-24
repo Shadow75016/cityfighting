@@ -370,12 +370,7 @@ if data_ville1 and data_ville2:
             st.markdown("<h4>📍 Carte interactive</h4>", unsafe_allow_html=True)
 
             types_disponibles = ["école", "hôpitaux", "parc", "gare"]
-            types_selectionnes = st.multiselect(
-                "Filtrer les types de points d’intérêt à afficher :",
-                options=types_disponibles,
-                default=[],
-                key=f"filtre_{data['nom']}"
-            )
+            types_selectionnes = 
             pois_filtres = [poi for poi in data.get("pois", []) if poi["type"] in types_selectionnes]
 
             display_map(
