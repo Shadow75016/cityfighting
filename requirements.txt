@@ -1,0 +1,6 @@
+streamlit
+pandas
+numpy
+requests
+folium
+plotly>=5.14.1
