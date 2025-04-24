@@ -4,3 +4,4 @@ numpy
 requests
 folium
 plotly>=5.14.1
+streamlit-folium
