@@ -345,7 +345,7 @@ if data_ville1 and data_ville2:
         key="global_filter_key"
     )
 
-    "🗂️ Filtrer les types de points d’intérêt à afficher (valable pour les deux villes) :",
+    "🗂️ Filtrer les types de points d’intérêt à afficher test (valable pour les deux villes) :",
     options=types_disponibles,
     default=[],
     key="unique_global_filter_key_final_version"
