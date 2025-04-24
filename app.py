@@ -336,6 +336,12 @@ data_ville1 = get_ville_data(ville1)
 data_ville2 = get_ville_data(ville2)
 
 if data_ville1 and data_ville2:
+    types_disponibles = ["école", "hôpitaux", "parc", "gare"]
+types_selectionnes = st.multiselect(
+    "🗂️ Filtrer les types de points d’intérêt à afficher (valable pour les deux villes) :",
+    options=types_disponibles,
+    default=[]
+)
     col1, col2 = st.columns(2)
 
     for col, data in zip([col1, col2], [data_ville1, data_ville2]):
@@ -397,6 +403,12 @@ else:
 
 # === Comparaison des données logement en graphiques ===
 if data_ville1 and data_ville2:
+    types_disponibles = ["école", "hôpitaux", "parc", "gare"]
+types_selectionnes = st.multiselect(
+    "🗂️ Filtrer les types de points d’intérêt à afficher (valable pour les deux villes) :",
+    options=types_disponibles,
+    default=[]
+)
     labels = [ville1, ville2]
 
     maisons = [
