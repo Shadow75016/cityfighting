@@ -341,7 +341,7 @@ if data_ville1 and data_ville2:
     "🗂️ Filtrer les types de points d’intérêt à afficher (valable pour les deux villes) :",
     options=types_disponibles,
     default=[],
-    key="unique_global_poi_filter_shared"
+    key="unique_global_filter_key_final_version"
 )
     col1, col2 = st.columns(2)
 
@@ -409,7 +409,7 @@ if data_ville1 and data_ville2:
     "🗂️ Filtrer les types de points d’intérêt à afficher (valable pour les deux villes) :",
     options=types_disponibles,
     default=[],
-    key="unique_global_poi_filter_shared"
+    key="unique_global_filter_key_final_version"
 )
     labels = [ville1, ville2]
 
