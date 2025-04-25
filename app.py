@@ -74,17 +74,24 @@ st.set_page_config(layout="wide", page_title="City Fighting", page_icon="🌍")
 @st.cache_data
 def load_logement_data():
     dossier = os.path.dirname(__file__)
-    fichier = os.path.join(dossier, "api_logement_2023.csv")
-    if os.path.exists(fichier):
-        try:
-            df = pd.read_csv(fichier, sep=None, engine='python')
-            df["ANNEE"] = 2023
-            return df
-        except Exception as e:
-            st.error(f"Erreur lors du chargement du fichier logement : {e}")
-    else:
-        st.error("❌ Le fichier logement 2023 est introuvable.")
-    return pd.DataFrame()
+    fichiers = [f"api_logement_{annee}.csv" for annee in range(2014, 2024)]
+    dfs = []
+
+    for f in fichiers:
+        path = os.path.join(dossier, f)
+        if os.path.exists(path):
+            try:
+                df = pd.read_csv(path, sep=None, engine='python')
+                df["ANNEE"] = int(f.split("_")[-1].split(".")[0])
+                dfs.append(df)
+            except Exception:
+                pass
+
+    if not dfs:
+        st.error("❌ Aucun fichier de logement n'a pu être chargé.")
+        return pd.DataFrame()
+
+    return pd.concat(dfs, ignore_index=True)
 
 logement_data = load_logement_data()
 
@@ -326,6 +333,15 @@ with col2:
     ville2 = st.selectbox("🏙️ Choisissez la deuxième ville", ville_list, index=1)
 
 data_ville1 = get_ville_data(ville1)
+
+# === Filtre global pour les POIs ===
+types_disponibles = ["école", "hôpitaux", "parc", "gare"]
+types_selectionnes = st.multiselect(
+    "📍 Filtrer les types de points d’intérêt à afficher (valable pour les 2 villes) :",
+    options=types_disponibles,
+    default=[]
+)
+
 data_ville2 = get_ville_data(ville2)
 
 if data_ville1 and data_ville2:
@@ -356,38 +372,7 @@ if data_ville1 and data_ville2:
             st.markdown("<h4>📍 Carte interactive</h4>", unsafe_allow_html=True)
 
             types_disponibles = ["école", "hôpitaux", "parc", "gare"]
-            types_selectionnes = st.multiselect(
-                "Filtrer les types de points d’intérêt à afficher :",
-                options=types_disponibles,
-                default=[],
-                key=f"filtre_{data['nom']}"
-            )
-            pois_filtres = [poi for poi in data.get("pois", []) if poi["type"] in types_selectionnes]
-
-            display_map(
-                nom=data["nom"],
-                cp="Code postal non fourni",
-                lat=data["latitude"],
-                lon=data["longitude"],
-                temp=data["meteo"]["temp"],
-                pois=pois_filtres
-            )
-
-            st.markdown("""
-            <div style='margin-top: 10px; font-size: 14px;'>
-                <b>Légende des couleurs :</b><br>
-                <span style='color: purple;'>🟣 École</span> &nbsp;
-                <span style='color: red;'>🔴 Hôpital</span> &nbsp;
-                                <span style='color: green;'>🟢 Parc</span> &nbsp;
-                <span style='color: orange;'>🟠 Gare</span>
-            </div>
-            """, unsafe_allow_html=True)
-
-
-            st.markdown("</div>", unsafe_allow_html=True)
-else:
-    st.error("Impossible de récupérer les données pour l'une des villes.")
-
+            
 # === Comparaison des données logement en graphiques ===
 if data_ville1 and data_ville2:
     labels = [ville1, ville2]
