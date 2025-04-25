@@ -331,6 +331,7 @@ with col2:
 
 # === Filtre global pour les POIs (valable pour les deux villes) ===
 types_disponibles = ["école", "hôpitaux", "parc", "gare"]
+types_disponibles = ["école", "hôpitaux", "parc", "gare"]
 types_selectionnes = st.multiselect(
     "📍 Filtrer les types de points d’intérêt à afficher :", 
     options=types_disponibles, 
@@ -367,15 +368,6 @@ if data_ville1 and data_ville2:
             
             # Carte interactive avec folium
             st.markdown("<h4>📍 Carte interactive</h4>", unsafe_allow_html=True)
-
-            types_disponibles = ["école", "hôpitaux", "parc", "gare"]
-            types_selectionnes = st.multiselect(
-                "Filtrer les types de points d’intérêt à afficher :",
-                options=types_disponibles,
-                default=[],
-                key=f"filtre_{data['nom']}"
-            )
-            pois_filtres = [poi for poi in data.get("pois", []) if poi["type"] in types_selectionnes]
 
             display_map(
                 nom=data["nom"],
