@@ -330,25 +330,30 @@ with col2:
     ville2 = st.selectbox("🏙️ Choisissez la deuxième ville", ville_list, index=1)
 
 # === Filtre global pour les POIs (valable pour les deux villes) ===
-types_disponibles = ["école", "hôpitaux", "parc", "gare"]
-types_disponibles = ["école", "hôpitaux", "parc", "gare"]
-types_selectionnes = st.multiselect(
-    "📍 Filtrer les types de points d’intérêt à afficher :", 
-    options=types_disponibles, 
-    default=[]
-)
 
 
 data_ville1 = get_ville_data(ville1)
 data_ville2 = get_ville_data(ville2)
 
 if data_ville1 and data_ville2:
+    types_disponibles = ["école", "hôpitaux", "parc", "gare"]
+    types_selectionnes = st.multiselect(
+        "📍 Filtrer les types de points d’intérêt à afficher :",
+        options=types_disponibles,
+        default=[]
+    )
+
     col1, col2 = st.columns(2)
 
     for col, data in zip([col1, col2], [data_ville1, data_ville2]):
         with col:
             st.markdown(f"""
                 <div class='card'>
+types_selectionnes = st.multiselect(
+    "📍 Filtrer les types de points d’intérêt à afficher :", 
+    options=types_disponibles, 
+    default=[]
+
                     <h3><strong>📍{data['nom']}</strong></h3>
                     <p><strong>Population :</strong> {data['population']} habitants</p>
                     <p><strong>Superficie :</strong> {data['superficie_km2']} km²</p>
