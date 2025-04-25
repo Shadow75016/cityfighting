@@ -220,6 +220,12 @@ def display_map(nom, cp, lat, lon, temp, pois=None):
 
 
 st.markdown("""
+            <div style='margin-top: 10px; font-size: 14px;'>
+                <span style='color: blue;'>🟦 Limite administrative de la commune</span>
+            </div>
+            """, unsafe_allow_html=True)
+
+st.markdown("""
     <style>
         html, body, .main {
             background-color: #0b0f19 !important;
@@ -326,16 +332,15 @@ with col1:
 with col2:
     ville2 = st.selectbox("🏙️ Choisissez la deuxième ville", ville_list, index=1)
 
-data_ville1 = get_ville_data(ville1)
-
 # === Filtre global pour les POIs ===
 types_disponibles = ["école", "hôpitaux", "parc", "gare"]
 types_selectionnes = st.multiselect(
-    "📍 Filtrer les types de points d’intérêt à afficher (valable pour les 2 villes) :",
+    "📍 Filtrer les types de points d’intérêt à afficher pour les deux villes :",
     options=types_disponibles,
     default=[]
 )
 
+data_ville1 = get_ville_data(ville1)
 data_ville2 = get_ville_data(ville2)
 
 if data_ville1 and data_ville2:
@@ -366,7 +371,38 @@ if data_ville1 and data_ville2:
             st.markdown("<h4>📍 Carte interactive</h4>", unsafe_allow_html=True)
 
             types_disponibles = ["école", "hôpitaux", "parc", "gare"]
+            types_selectionnes = st.multiselect(
+                "Filtrer les types de points d’intérêt à afficher :",
+                options=types_disponibles,
+                default=[],
+                key=f"filtre_{data['nom']}"
+            )
             
+
+            display_map(
+                nom=data["nom"],
+                cp="Code postal non fourni",
+                lat=data["latitude"],
+                lon=data["longitude"],
+                temp=data["meteo"]["temp"],
+                pois=pois_filtres
+            )
+
+            st.markdown("""
+            <div style='margin-top: 10px; font-size: 14px;'>
+                <b>Légende des couleurs :</b><br>
+                <span style='color: purple;'>🟣 École</span> &nbsp;
+                <span style='color: red;'>🔴 Hôpital</span> &nbsp;
+                                <span style='color: green;'>🟢 Parc</span> &nbsp;
+                <span style='color: orange;'>🟠 Gare</span>
+            </div>
+            """, unsafe_allow_html=True)
+
+
+            st.markdown("</div>", unsafe_allow_html=True)
+else:
+    st.error("Impossible de récupérer les données pour l'une des villes.")
+
 # === Comparaison des données logement en graphiques ===
 if data_ville1 and data_ville2:
     labels = [ville1, ville2]
