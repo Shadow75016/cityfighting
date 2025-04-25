@@ -182,18 +182,6 @@ def display_map(nom, cp, lat, lon, temp, pois=None):
         icon=folium.Icon(color="blue", icon="info-sign")
     ).add_to(m)
     
-    boundary_coords = get_commune_boundary(nom)
-    if boundary_coords:
-        folium.Polygon(
-            locations=boundary_coords,
-            color='blue',
-            weight=2,
-            fill=True,
-            fill_opacity=0.05,
-            tooltip="Limite administrative"
-        ).add_to(m)
-
-        
     if pois:
         for poi in pois:
             if poi["type"] is None:
