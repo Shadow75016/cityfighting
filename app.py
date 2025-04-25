@@ -329,6 +329,10 @@ with col1:
 with col2:
     ville2 = st.selectbox("🏙️ Choisissez la deuxième ville", ville_list, index=1)
 
+data_ville1 = get_ville_data(ville1)
+data_ville2 = get_ville_data(ville2)
+
+
 # === Filtre global pour les POIs (valable pour les deux villes) ===# === Comparaison des données logement en graphiques ===
 if data_ville1 and data_ville2:
     labels = [ville1, ville2]
