@@ -1,8 +1,6 @@
 streamlit
 pandas
 requests
-geopandas
-shapely
 folium
-streamlit-folium
 plotly
+streamlit-folium
