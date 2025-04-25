@@ -327,6 +327,10 @@ ville_list = get_all_villes()
 
 col1, col2 = st.columns(2)
 
+
+# === Sélection des villes ===
+ville_list = get_all_villes()
+col1, col2 = st.columns(2)
 with col1:
     ville1 = st.selectbox("🏙️ Choisissez la première ville", ville_list)
 with col2:
@@ -336,38 +340,30 @@ data_ville1 = get_ville_data(ville1)
 data_ville2 = get_ville_data(ville2)
 
 if data_ville1 and data_ville2:
-    col1, col2 = st.columns(2)
+    # === Filtre POIs global ===
+    types_disponibles = ["école", "hôpitaux", "parc", "gare"]
+    types_selectionnes = st.multiselect(
+        "📍 Filtrer les types de points d’intérêt à afficher :",
+        options=types_disponibles,
+        default=[]
+    )
 
+    # === Affichage des cartes côte à côte ===
+    col1, col2 = st.columns(2)
     for col, data in zip([col1, col2], [data_ville1, data_ville2]):
         with col:
-            st.markdown(f"""
-                <div class='card'>
-                    <h3><strong>{data['nom']}</strong></h3>
-                    <p><strong>Population :</strong> {data['population']} habitants</p>
-                    <p><strong>Superficie :</strong> {data['superficie_km2']} km²</p>
-                    <p><strong>Densité :</strong> {data['densite_hab_km2']} hab/km²</p>
-                    <hr>
-                    <h4>Météo actuelle</h4>
-                    <p>Température : {data['meteo']['temp']} °C</p>
-                    <p>{data['meteo']['statut']}</p>
-            """, unsafe_allow_html=True)
-
-            if data['meteo']['previsions']:
-                meteo_df = pd.DataFrame(data['meteo']['previsions'])
-                meteo_df.columns = ["Date", "Temp. Min (°C)", "Temp. Max (°C)", "Précip. (mm)"]
-                st.markdown("<h5>Prévisions météo (7 jours)</h5>", unsafe_allow_html=True)
-                st.markdown(meteo_df.to_html(classes="meteo-table", index=False), unsafe_allow_html=True)
-
-            
-            # Carte interactive avec folium
-            
-
-
-        st.markdown("<h4>📍 Carte interactive</h4>", unsafe_allow_html=True)
-
-
-        st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown(f"### ☀️📍 Carte interactive – {data['nom']}")
+            display_map(
+                nom=data["nom"],
+                cp=data.get("cp", "NC"),
+                lat=data["latitude"],
+                lon=data["longitude"],
+                temp=data["meteo"]["temp"],
+                pois=[poi for poi in data.get("pois", []) if poi["type"] in types_selectionnes]
+            )
 else:
+    st.error("Impossible de récupérer les données pour l'une des villes.")
+
     st.error("Impossible de récupérer les données pour l'une des villes.")
 
 # === Comparaison des données logement en graphiques ===
