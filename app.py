@@ -336,19 +336,6 @@ data_ville1 = get_ville_data(ville1)
 data_ville2 = get_ville_data(ville2)
 
 if data_ville1 and data_ville2:
-
-    types_disponibles = ["école", "hôpitaux", "parc", "gare"]
-    types_selectionnes = st.multiselect(
-        "🗂️ Filtrer les types de points d’intérêt à afficher test (valable pour les deux villes) :",
-        options=types_disponibles,
-        default=[],
-        key="global_filter_key"
-    )
-
-    "🗂️ Filtrer les types de points d’intérêt à afficher test (valable pour les deux villes) :",
-    options=types_disponibles,
-    default=[],
-    key="unique_global_filter_key_final_version"
     col1, col2 = st.columns(2)
 
     for col, data in zip([col1, col2], [data_ville1, data_ville2]):
@@ -375,7 +362,13 @@ if data_ville1 and data_ville2:
             # Carte interactive avec folium
             st.markdown("<h4>📍 Carte interactive</h4>", unsafe_allow_html=True)
 
-            types_selectionnes = 
+            types_disponibles = ["école", "hôpitaux", "parc", "gare"]
+            types_selectionnes = st.multiselect(
+                "Filtrer les types de points d’intérêt à afficher :",
+                options=types_disponibles,
+                default=[],
+                key=f"filtre_{data['nom']}"
+            )
             pois_filtres = [poi for poi in data.get("pois", []) if poi["type"] in types_selectionnes]
 
             display_map(
@@ -404,19 +397,6 @@ else:
 
 # === Comparaison des données logement en graphiques ===
 if data_ville1 and data_ville2:
-
-    types_disponibles = ["école", "hôpitaux", "parc", "gare"]
-    types_selectionnes = st.multiselect(
-        "🗂️ Filtrer les types de points d’intérêt à afficher (valable pour les deux villes) :",
-        options=types_disponibles,
-        default=[],
-        key="global_filter_key"
-    )
-
-    "🗂️ Filtrer les types de points d’intérêt à afficher (valable pour les deux villes) :",
-    options=types_disponibles,
-    default=[],
-    key="unique_global_filter_key_final_version"
     labels = [ville1, ville2]
 
     maisons = [
@@ -440,7 +420,7 @@ if data_ville1 and data_ville2:
     # Ajouter un bloc de fond pour le titre avec une largeur maximisée
     st.markdown("""
     <div style="text-align: center; padding: 20px; background-color: #2b2b2b; border-radius: 15px; box-shadow: 0 0 15px rgba(0, 0, 0, 0.5); width: 100%; margin-bottom: 20px;">
-        <h2 style="color: white; font-size: 30px;">📊 Comparaison des indicateurs de logement entre les deux villes (données de 2023) </h2>
+        <h2 style="color: white; font-size: 30px;">📊 Comparaison des indicateurs de logement entre les deux villes </h2>
     </div>
     """, unsafe_allow_html=True)
 
