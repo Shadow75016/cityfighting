@@ -356,7 +356,7 @@ if data_ville1 and data_ville2:
                     <p><strong>Superficie :</strong> {data['superficie_km2']} km²</p>
                     <p><strong>Densité :</strong> {data['densite_hab_km2']} hab/km²</p>
                     <hr>
-                    <h3><strong>Météo actuelle</strong></h3>
+                    <h3>Météo actuelle</h3>
                     <p>Température : {data['meteo']['temp']} °C</p>
                     <p>{data['meteo']['statut']}</p>
             """, unsafe_allow_html=True)
