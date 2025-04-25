@@ -331,14 +331,6 @@ with col1:
     ville1 = st.selectbox("🏙️ Choisissez la première ville", ville_list)
 with col2:
     ville2 = st.selectbox("🏙️ Choisissez la deuxième ville", ville_list, index=1)
-# === Filtre global pour les POIs (valable pour les deux villes) ===
-types_disponibles = ["école", "hôpitaux", "parc", "gare"]
-types_selectionnes = st.multiselect(
-    "📍 Filtrer les types de points d’intérêt à afficher :", 
-    options=types_disponibles, 
-    default=[]
-)
-
 
 data_ville1 = get_ville_data(ville1)
 data_ville2 = get_ville_data(ville2)
@@ -368,7 +360,17 @@ if data_ville1 and data_ville2:
 
             
             # Carte interactive avec folium
-            st.markdown("<h4>📍 Carte interactive</h4>", unsafe_allow_html=True)# === Comparaison des données logement en graphiques ===
+            
+
+
+        st.markdown("<h4>📍 Carte interactive</h4>", unsafe_allow_html=True)
+
+
+        st.markdown("</div>", unsafe_allow_html=True)
+else:
+    st.error("Impossible de récupérer les données pour l'une des villes.")
+
+# === Comparaison des données logement en graphiques ===
 if data_ville1 and data_ville2:
     labels = [ville1, ville2]
 
