@@ -182,6 +182,18 @@ def display_map(nom, cp, lat, lon, temp, pois=None):
         icon=folium.Icon(color="blue", icon="info-sign")
     ).add_to(m)
     
+    boundary_coords = get_commune_boundary(nom)
+    if boundary_coords:
+        folium.Polygon(
+            locations=boundary_coords,
+            color='blue',
+            weight=2,
+            fill=True,
+            fill_opacity=0.05,
+            tooltip="Limite administrative"
+        ).add_to(m)
+
+        
     if pois:
         for poi in pois:
             if poi["type"] is None:
@@ -206,12 +218,6 @@ def display_map(nom, cp, lat, lon, temp, pois=None):
 
 # === UI PRINCIPALE ===
 
-
-st.markdown("""
-            <div style='margin-top: 10px; font-size: 14px;'>
-                <span style='color: blue;'>🟦 Limite administrative de la commune</span>
-            </div>
-            """, unsafe_allow_html=True)
 
 st.markdown("""
     <style>
