@@ -313,9 +313,6 @@ st.markdown("""
             color: #fbbf24;
         }
 
-        h3::before { content: "📍 "; }
-        h4::before { content: "🌤️ "; }
-        h5::before { content: "📅 "; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -351,12 +348,12 @@ if data_ville1 and data_ville2:
         with col:
             st.markdown(f"""
                 <div class='card'>
-                    <h3><strong>{data['nom']}</strong></h3>
+                    <h3><strong>📍{data['nom']}</strong></h3>
                     <p><strong>Population :</strong> {data['population']} habitants</p>
                     <p><strong>Superficie :</strong> {data['superficie_km2']} km²</p>
                     <p><strong>Densité :</strong> {data['densite_hab_km2']} hab/km²</p>
                     <hr>
-                    <h3>Météo actuelle</h3>
+                    <h3>🌤️ Météo actuelle</h3>
                     <p>Température : {data['meteo']['temp']} °C</p>
                     <p>{data['meteo']['statut']}</p>
             """, unsafe_allow_html=True)
@@ -364,7 +361,7 @@ if data_ville1 and data_ville2:
             if data['meteo']['previsions']:
                 meteo_df = pd.DataFrame(data['meteo']['previsions'])
                 meteo_df.columns = ["Date", "Temp. Min (°C)", "Temp. Max (°C)", "Précip. (mm)"]
-                st.markdown("<h5>Prévisions météo (7 jours)</h5>", unsafe_allow_html=True)
+                st.markdown("<h4>📅 Prévisions météo (7 jours)</h4>", unsafe_allow_html=True)
                 st.markdown(meteo_df.to_html(classes="meteo-table", index=False), unsafe_allow_html=True)
 
             
