@@ -332,13 +332,14 @@ with col1:
 with col2:
     ville2 = st.selectbox("🏙️ Choisissez la deuxième ville", ville_list, index=1)
 
-# === Filtre global pour les POIs ===
+# === Filtre global pour les POIs (valable pour les deux villes) ===
 types_disponibles = ["école", "hôpitaux", "parc", "gare"]
 types_selectionnes = st.multiselect(
-    "📍 Filtrer les types de points d’intérêt à afficher pour les deux villes :",
-    options=types_disponibles,
+    "📍 Filtrer les types de points d’intérêt à afficher :", 
+    options=types_disponibles, 
     default=[]
 )
+
 
 data_ville1 = get_ville_data(ville1)
 data_ville2 = get_ville_data(ville2)
@@ -377,7 +378,7 @@ if data_ville1 and data_ville2:
                 default=[],
                 key=f"filtre_{data['nom']}"
             )
-            
+            pois_filtres = [poi for poi in data.get("pois", []) if poi["type"] in types_selectionnes]
 
             display_map(
                 nom=data["nom"],
@@ -385,7 +386,7 @@ if data_ville1 and data_ville2:
                 lat=data["latitude"],
                 lon=data["longitude"],
                 temp=data["meteo"]["temp"],
-                pois=pois_filtres
+                pois=[poi for poi in data.get("pois", []) if poi["type"] in types_selectionnes]
             )
 
             st.markdown("""
