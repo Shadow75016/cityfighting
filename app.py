@@ -5,106 +5,66 @@ import pandas as pd
 import folium
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
+
+# === Fonction pour récupérer les points d'intérêt depuis OpenStreetMap ===
+# Fonction pour récupérer les points d'intérêt autour d'une commune (écoles, hôpitaux, gares, parcs)
+def get_pois_from_overpass(lat, lon, rayon=5000):
+    overpass_url = "http://overpass-api.de/api/interpreter"
+    query = f"""
+    [out:json][timeout:25];
+    (
+      node["amenity"="school"](around:{rayon},{lat},{lon});
+      node["amenity"="hospital"](around:{rayon},{lat},{lon});
+            node["leisure"="park"](around:{rayon},{lat},{lon});
+      node["railway"="station"](around:{rayon},{lat},{lon});
+    );
+    out body;
+    """
+    response = requests.get(overpass_url, params={'data': query})
+    data = response.json()
+
+    pois = []
+    for element in data.get("elements", []):
+        nom = element.get("tags", {}).get("name", "Sans nom")
+        type_poi = (
+            element["tags"].get("amenity") or
+            element["tags"].get("tourism") or
+            element["tags"].get("leisure") or
+            element["tags"].get("railway") or
+            "Autre"
+        )
+
+        # Traduction des types
+        translations = {
+            "school": "école",
+            "hospital": "hôpitaux",
+                        "park": "parc",
+            "station": "gare",
+            "Autre": "Autre"
+        }
+        type_poi = translations.get(type_poi)
+        pois.append({
+            "nom": nom,
+            "type": type_poi,
+            "lat": element["lat"],
+            "lon": element["lon"]
+        })
+
+    return pois
+
 from streamlit_folium import st_folium
-
-# === Fetchers for new metrics ===
-INSEE_TOKEN = os.environ.get("INSEE_API_TOKEN", "")
-
-@st.cache_data
-def fetch_taux_chomage(code_insee: str) -> float:
-    """
-    Récupère le dernier taux de chômage localisé (%) pour la commune donnée.
-    """
-    url = f"https://api.insee.fr/donnees-locales/v1/communes/{code_insee}/indicateurs/emploi-chomage"
-    headers = {"Authorization": f"Bearer {INSEE_TOKEN}"}
-    resp = requests.get(url, headers=headers)
-    resp.raise_for_status()
-    data = resp.json()
-    return float(data.get("taux_chomage_localise", 0.0))
-
-@st.cache_data
-def fetch_revenu_median(code_insee: str) -> float:
-    """
-    Récupère le revenu fiscal médian (€) pour la commune.
-    """
-    ods_url = "https://data.opendatasoft.com/api/records/1.0/search/"
-    params = {
-        "dataset": "revenus-localises-socials-et-fiscaux",
-        "rows": 1,
-        "refine.commune": code_insee
-    }
-    resp = requests.get(ods_url, params=params)
-    resp.raise_for_status()
-    record = resp.json()["records"][0]["fields"]
-    return float(record.get("revenu_median", 0.0))
-
-@st.cache_data
-def fetch_couverture_fibre(code_insee: str) -> float:
-    """
-    Récupère le pourcentage de locaux raccordables en fibre optique pour la commune.
-    """
-    url = "https://api-fibre.arcep.fr/v1/coverages"
-    params = {"territoryType": "commune", "territoryCode": code_insee}
-    resp = requests.get(url, params=params)
-    resp.raise_for_status()
-    data = resp.json().get("data", [])
-    return float(data[0].get("percentage", 0.0)) if data else 0.0
-
-@st.cache_data
-def fetch_taux_delinquance(code_insee: str, annee: int = 2023) -> float:
-    """
-    Récupère le taux de crimes et délits pour 1 000 habitants en 2023 pour la commune.
-    """
-    dataset_id = "ID_DU_JEU"  # Remplacer par l'ID réel du dataset
-    url = f"https://www.data.gouv.fr/api/1/datasets/{dataset_id}/records/"
-    params = {
-        "q": f"code_commune:{code_insee} AND annee:{annee}",
-        "rows": 1
-    }
-    resp = requests.get(url, params=params)
-    resp.raise_for_status()
-    records = resp.json().get("records", [])
-    if not records:
-        return 0.0
-    fields = records[0]["fields"]
-    return float(fields.get("taux_crimes_deli_ts_1000hab", 0.0))
-
-# === Metrics registry ===
-METRICS = [
-    {
-        "id": "taux_chomage",
-        "label": "Taux de chômage (%)",
-        "fetcher": fetch_taux_chomage,
-        "formatter": lambda x: f"{x:.1f} %",
-    },
-    {
-        "id": "revenu_median",
-        "label": "Revenu fiscal médian (€)",
-        "fetcher": fetch_revenu_median,
-        "formatter": lambda x: f"{x:,.0f} €",
-    },
-    {
-        "id": "couverture_fibre",
-        "label": "Couverture fibre (%)",
-        "fetcher": fetch_couverture_fibre,
-        "formatter": lambda x: f"{x:.1f} %",
-    },
-    {
-        "id": "taux_delinquance",
-        "label": "Crimes & délits (pour 1 000 hab.)",
-        "fetcher": fetch_taux_delinquance,
-        "formatter": lambda x: f"{x:.1f}",
-    }
-]
 
 st.set_page_config(layout="wide", page_title="City Fighting", page_icon="🌍")
 
+
 # === Chargement des données logement (fusionnées) ===
+# Fonction pour charger et fusionner les données logement depuis plusieurs CSV
 @st.cache_data
 def load_logement_data():
     dossier = os.path.dirname(__file__)
     fichiers = [f"api_logement_{annee}.csv" for annee in range(2014, 2024)]
     dfs = []
+
     for f in fichiers:
         path = os.path.join(dossier, f)
         if os.path.exists(path):
@@ -114,38 +74,51 @@ def load_logement_data():
                 dfs.append(df)
             except Exception:
                 pass
+
     if not dfs:
         st.error("❌ Aucun fichier de logement n'a pu être chargé.")
         return pd.DataFrame()
+
     return pd.concat(dfs, ignore_index=True)
 
 logement_data = load_logement_data()
 
 # === Fonction pour récupérer les données d'une ville ===
+# Fonction pour récupérer les données principales d'une ville (population, superficie, météo, logement, POIs)
 def get_ville_data(ville):
     geo_url = f"https://geo.api.gouv.fr/communes?nom={ville}&fields=nom,code,population,surface,centre&format=json&geometry=centre"
     response = requests.get(geo_url).json()
+
     if not response:
         return None
+
     commune = next((c for c in response if c['nom'].lower() == ville.lower() and c.get('population', 0) >= 20000), None)
     if not commune:
         return None
+
     code_insee = commune['code']
     densite = round(commune['population'] / commune['surface'], 2) if commune.get('surface') else "Données indisponibles"
     latitude = commune['centre']['coordinates'][1]
     longitude = commune['centre']['coordinates'][0]
+
     try:
         meteo_url = (
             f"https://api.open-meteo.com/v1/forecast?latitude={latitude}&longitude={longitude}"
             f"&current_weather=true&daily=temperature_2m_max,temperature_2m_min,precipitation_sum"
             f"&timezone=Europe%2FParis"
         )
-        r = requests.get(meteo_url); r.raise_for_status()
+        r = requests.get(meteo_url)
+        r.raise_for_status()
         meteo_data = r.json()
         temp = meteo_data['current_weather']['temperature']
         statut = f"Vent: {meteo_data['current_weather']['windspeed']} km/h"
         daily_forecast = [
-            {"date": d, "temp_min": tmin, "temp_max": tmax, "precip": precip}
+            {
+                "date": d,
+                "temp_min": tmin,
+                "temp_max": tmax,
+                "precip": precip
+            }
             for d, tmin, tmax, precip in zip(
                 meteo_data['daily']['time'],
                 meteo_data['daily']['temperature_2m_min'],
@@ -154,60 +127,193 @@ def get_ville_data(ville):
             )
         ]
     except:
-        temp, statut, daily_forecast = "N/A", "Météo non disponible", []
+        temp = "N/A"
+        statut = "Météo non disponible"
+        daily_forecast = []
+
     logement_info = {}
     if not logement_data.empty:
         logement_data['INSEE_COM'] = logement_data['INSEE_COM'].apply(lambda x: str(int(float(x))).zfill(5) if pd.notnull(x) else None)
         logement = logement_data[logement_data['INSEE_COM'] == code_insee]
         logement_recent = logement[logement['ANNEE'] == logement['ANNEE'].max()] if not logement.empty else None
         logement_info = logement_recent.iloc[0].to_dict() if logement_recent is not None and not logement_recent.empty else {}
-    pois = get_pois_from_overpass(latitude, longitude)
+
     return {
-        "code_insee": code_insee,
         "nom": commune['nom'],
         "population": commune['population'],
         "superficie_km2": commune['surface'],
         "densite_hab_km2": densite,
         "latitude": latitude,
         "longitude": longitude,
-        "meteo": {"temp": temp, "statut": statut, "previsions": daily_forecast},
+        "meteo": {
+            "temp": temp,
+            "statut": statut,
+            "previsions": daily_forecast
+        },
         "logement": logement_info,
-        "pois": pois
+        "pois": get_pois_from_overpass(latitude, longitude)
     }
 
-# === POI functions (get_pois_from_overpass, display_map) remain unchanged ===
+# === Liste des villes avec population > 20 000 ===
+# Fonction pour obtenir toutes les villes de France de plus de 20 000 habitants
+def get_all_villes():
+    url = "https://geo.api.gouv.fr/communes?fields=nom,population&format=json"
+    response = requests.get(url).json()
+    return sorted([ville['nom'] for ville in response if ville.get('population', 0) >= 20000])
+
+
+# === Affichage d'une carte interactive avec folium ===
+# Fonction pour afficher la carte interactive Folium avec POIs et limites communales
+def display_map(nom, cp, lat, lon, temp, pois=None):
+    m = folium.Map(location=[lat, lon], zoom_start=13)
+    folium.Marker(
+        [lat, lon],
+        tooltip=f"{nom} - {temp}°C",
+        popup=f"<b>{nom}</b><br>Température: {temp}°C",
+        icon=folium.Icon(color="blue", icon="info-sign")
+    ).add_to(m)
+        
+    if pois:
+        for poi in pois:
+            if poi["type"] is None:
+                continue
+            poi_type = poi["type"].lower()
+            color_map = {
+                "école": "purple",
+                "hôpitaux": "red",
+                "musée": "cadetblue",
+                "parc": "green",
+                "gare": "orange"
+            }
+            icon_color = color_map.get(poi_type)
+
+            folium.Marker(
+                location=[poi["lat"], poi["lon"]],
+                tooltip=poi["type"].capitalize(),
+                icon=folium.Icon(color=icon_color, icon="info-sign")
+            ).add_to(m)
+        
+    st_folium(m, width=700, height=500)
 
 # === UI PRINCIPALE ===
+
+
+st.markdown("""
+    <style>
+        html, body, .main {
+            background-color: #0b0f19 !important;
+            color: #e1e8ed;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        .main h1 {
+            color: #00b4fc !important;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+        }
+
+        .stSelectbox > div {
+            background-color: #1e2633;
+            color: #e1e8ed;
+            border-radius: 8px;
+        }
+
+        hr {
+            border-top: 1px solid #2f3e54;
+            margin: 1.5rem 0;
+        }
+
+        .card {
+            background: linear-gradient(145deg, #1a2332, #111927);
+            padding: 25px;
+            border-radius: 18px;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+            margin-bottom: 20px;
+            transition: transform 0.3s ease;
+        }
+
+        .card:hover {
+            transform: scale(1.01);
+        }
+
+        .card h3 {
+            color: #ffffff;
+            margin-bottom: 10px;
+        }
+
+        .card p {
+            line-height: 1.7;
+            margin: 6px 0;
+            color: #c8d3dc;
+        }
+
+        h4, h5 {
+            margin-top: 20px;
+            color: #4fd1c5;
+            font-weight: 600;
+        }
+
+        .meteo-table {
+            margin-top: 10px;
+            border-collapse: separate;
+            border-spacing: 0;
+            width: 100%;
+            font-size: 15px;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .meteo-table thead tr {
+            background-color: #1e2a38;
+        }
+
+        .meteo-table th, .meteo-table td {
+            padding: 12px;
+            text-align: center;
+            color: #e1e8ed;
+        }
+
+        .meteo-table tbody tr:nth-child(odd) {
+            background-color: #151d28;
+        }
+
+        .meteo-table tbody tr:nth-child(even) {
+            background-color: #1a2332;
+        }
+
+        .stMarkdown > h4 {
+            margin-top: 30px;
+            color: #fbbf24;
+        }
+
+    </style>
+""", unsafe_allow_html=True)
 
 st.markdown("<h1 style='text-align: center;'>🌍 City Fighting </h1>", unsafe_allow_html=True)
 st.markdown("<hr>", unsafe_allow_html=True)
 
-# Sélection des villes
+
+# Liste déroulante pour sélectionner les deux villes à comparer
 ville_list = get_all_villes()
+
 col1, col2 = st.columns(2)
+
 with col1:
     ville1 = st.selectbox("🏙️ Choisissez la première ville", ville_list)
 with col2:
     ville2 = st.selectbox("🏙️ Choisissez la deuxième ville", ville_list, index=1)
 
-# Sélection des indicateurs
-metric_labels = [m["label"] for m in METRICS]
-selected_metrics = st.multiselect("Choisissez les indicateurs", metric_labels, default=metric_labels)
+# === Filtre global pour les POIs (valable pour les deux villes) ===
 
-# Récupération des données pour les deux villes
+
+# Récupération des données pour les deux villes sélectionnées
 data_ville1 = get_ville_data(ville1)
 data_ville2 = get_ville_data(ville2)
 
+# Affichage des cartes et fiches détaillées par ville
 if data_ville1 and data_ville2:
-    st.markdown("<h2>🔢 Indicateurs comparatifs</h2>", unsafe_allow_html=True)
-    for metric in METRICS:
-        if metric["label"] in selected_metrics:
-            val1 = metric["fetcher"](data_ville1["code_insee"])
-            val2 = metric["fetcher"](data_ville2["code_insee"])
-            st.metric(label=f"{metric['label']} ({ville1})", value=metric['formatter'](val1))
-            st.metric(label=f"{metric['label']} ({ville2})", value=metric['formatter'](val2))
 
-    # Affichage des cartes et fiches détaillées par ville
+
     for col, data in zip([col1, col2], [data_ville1, data_ville2]):
         with col:
             st.markdown(f"""
@@ -221,10 +327,48 @@ if data_ville1 and data_ville2:
                     <p>Température : {data['meteo']['temp']} °C</p>
                     <p>{data['meteo']['statut']}</p>
             """, unsafe_allow_html=True)
-            # ... existing weather, map, logement comparison code ...
+
+            if data['meteo']['previsions']:
+                meteo_df = pd.DataFrame(data['meteo']['previsions'])
+                meteo_df.columns = ["Date", "Temp. Min (°C)", "Temp. Max (°C)", "Précip. (mm)"]
+                st.markdown("<h4>📅 Prévisions météo (7 jours)</h4>", unsafe_allow_html=True)
+                st.markdown(meteo_df.to_html(classes="meteo-table", index=False), unsafe_allow_html=True)
+
+            
+            # Carte interactive avec folium
+            st.markdown("<h4>📍 Carte interactive</h4>", unsafe_allow_html=True)
+            types_disponibles = ["école", "hôpitaux", "parc", "gare"]
+            types_selectionnes = st.multiselect(
+                "📍 Filtrer les types de points d’intérêt à afficher :",
+                options=types_disponibles,
+                default=[],
+                key=f"filter_{data['nom']}"
+            )
+
+
+            display_map(
+                nom=data["nom"],
+                cp="Code postal non fourni",
+                lat=data["latitude"],
+                lon=data["longitude"],
+                temp=data["meteo"]["temp"],
+                pois=[poi for poi in data.get("pois", []) if poi["type"] in types_selectionnes]
+            )
+
+            st.markdown("""
+            <div style='margin-top: 10px; font-size: 14px;'>
+                <b>Légende des couleurs :</b><br>
+                <span style='color: purple;'>🟣 École</span> &nbsp;
+                <span style='color: red;'>🔴 Hôpital</span> &nbsp;
+                                <span style='color: green;'>🟢 Parc</span> &nbsp;
+                <span style='color: orange;'>🟠 Gare</span>
+            </div>
+            """, unsafe_allow_html=True)
+
+
+            st.markdown("</div>", unsafe_allow_html=True)
 else:
     st.error("Impossible de récupérer les données pour l'une des villes.")
-
 # === Comparaison des données logement en graphiques ===
 # Affichage des cartes et fiches détaillées par ville
 if data_ville1 and data_ville2:
