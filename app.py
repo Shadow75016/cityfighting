@@ -1,4 +1,3 @@
-
 import streamlit as st
 import requests
 import os
@@ -8,14 +7,14 @@ from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 from streamlit_folium import st_folium
 
-# Fonction pour récupérer la limite administrative d'une commune depuis OpenStreetMap
+# Fonction améliorée pour récupérer la limite administrative d'une commune depuis OpenStreetMap
 def get_commune_boundary(nom_commune):
     overpass_url = "http://overpass-api.de/api/interpreter"
-    query = f'''
+    query = f"""
     [out:json][timeout:25];
-    relation["admin_level"="8"]["name"="{nom_commune}"];
+    relation["admin_level"="8"]["name"=\"{nom_commune}\"];
     out geom;
-    '''
+    """
     response = requests.get(overpass_url, params={'data': query})
     data = response.json()
     boundaries = []
@@ -34,7 +33,7 @@ def get_commune_boundary(nom_commune):
 # Fonction pour récupérer les points d'intérêt autour d'une commune
 def get_pois_from_overpass(lat, lon, rayon=5000):
     overpass_url = "http://overpass-api.de/api/interpreter"
-    query = f'''
+    query = f"""
     [out:json][timeout:25];
     (
       node["amenity"="school"](around:{rayon},{lat},{lon});
@@ -43,7 +42,7 @@ def get_pois_from_overpass(lat, lon, rayon=5000):
       node["railway"="station"](around:{rayon},{lat},{lon});
     );
     out body;
-    '''
+    """
     response = requests.get(overpass_url, params={'data': query})
     data = response.json()
 
@@ -217,6 +216,7 @@ def display_map(nom, cp, lat, lon, temp, pois=None):
 
     st_folium(m, width=700, height=500)
 
+# === Interface utilisateur ===
 st.title("🌍 City Fighting")
 ville_list = get_all_villes()
 
