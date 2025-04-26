@@ -30,22 +30,30 @@ logement_data = load_logement_data()
 
 def get_commune_boundary(code_insee):
     overpass_url = "http://overpass-api.de/api/interpreter"
-    query = f'''
-    [out:json][timeout:25];
-    area["ref:INSEE"="{code_insee}"][admin_level=8]->.searchArea;
-    relation(area.searchArea)["boundary"="administrative"];
-    out geom;
-    '''
-    response = requests.post(overpass_url, data=query)
-    if response.status_code != 200:
-        st.warning(f"Erreur Overpass: {response.status_code}")
+
+    def run_query(level):
+        query = f'''
+        [out:json][timeout:25];
+        area["ref:INSEE"="{code_insee}"][admin_level={level}]->.searchArea;
+        relation["boundary"="administrative"](area.searchArea);
+        out geom;
+        '''
+        response = requests.post(overpass_url, data=query)
+        if response.status_code != 200:
+            return []
+        data = response.json()
+        for element in data.get("elements", []):
+            if element["type"] == "relation" and "geometry" in element:
+                # ⚠️ Inverser lat/lon -> lon/lat pour Folium
+                return [(p["lon"], p["lat"]) for p in element["geometry"]]
         return []
-    data = response.json()
-    for element in data.get("elements", []):
-        if element["type"] == "relation" and "geometry" in element:
-            return [(point["lat"], point["lon"]) for point in element["geometry"]]
-    st.warning(f"Aucune limite trouvée pour le code INSEE {code_insee}")
-    return []
+
+    boundary = run_query(8)
+    if not boundary:
+        boundary = run_query(6)
+    if not boundary:
+        st.warning(f"Aucune limite trouvée pour le code INSEE {code_insee}")
+    return boundary
 
 def get_ville_data(ville):
     geo_url = f"https://geo.api.gouv.fr/communes?nom={ville}&fields=nom,code,population,surface,centre&format=json&geometry=centre"
