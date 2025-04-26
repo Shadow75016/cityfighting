@@ -56,6 +56,57 @@ from streamlit_folium import st_folium
 
 st.set_page_config(layout="wide", page_title="City Fighting", page_icon="🌍")
 
+@st.cache_data
+def get_income_median(code_insee):
+    """Revenu médian (API INSEE, clé INSEE_API_KEY requise)"""
+    url = f"https://api.insee.fr/entreprises/sirene/V3/siret?q=codeCommuneEtablissement:{code_insee}"
+    headers = {"Authorization": f"Bearer {os.environ.get('INSEE_API_KEY','')}"}
+    r = requests.get(url, headers=headers)
+    if r.status_code != 200:
+        return "N/A"
+    data = r.json()
+    revenum = data.get('unites_legales',[{}])[0] \
+               .get('donnees_communes',{}) \
+               .get('revenueMedian')
+    return round(revenum,2) if revenum else "N/A"
+
+@st.cache_data
+def get_teleport_scores(ville):
+    """Indices qualité de vie (Teleport Cities)"""
+    slug = ville.lower().replace(' ', '-') + '_fr'
+    url = f"https://api.teleport.org/api/urban_areas/slug:{slug}/scores/"
+    r = requests.get(url)
+    if r.status_code != 200:
+        return {}
+    return {cat['name']: round(cat['score_out_of_10'],1)
+            for cat in r.json().get('categories', [])}
+
+@st.cache_data
+def get_next_departures(lat, lon):
+    """Prochains départs transports (Navitia, clé NAVITIA_TOKEN requise)"""
+    token = os.environ.get('NAVITIA_TOKEN','')
+    if not token:
+        return []
+    url = (f"https://api.navitia.io/v1/coverage/fr-idf/"
+           f"stop_areas_nearby?lat={lat}&lon={lon}&count=3")
+    r = requests.get(url, auth=(token,''))
+    if r.status_code != 200:
+        return []
+    transports = []
+    for sa in r.json().get('stop_areas', [])[:3]:
+        name = sa['stop_area']['name']
+        sa_id = sa['stop_area']['id']
+        sched = requests.get(
+            f"https://api.navitia.io/v1/coverage/fr-idf/"
+            f"stop_areas/{sa_id}/stop_schedules",
+            auth=(token,'')
+        )
+        if sched.status_code != 200:
+            continue
+        for s in sched.json().get('stop_schedules', [])[:2]:
+            mode = s['display_informations']['commercial_mode']
+            transports.append(f"{name} – {mode} à {s['date_time']}")
+    return transports
 
 # === Chargement des données logement (fusionnées) ===
 # Fonction pour charger et fusionner les données logement depuis plusieurs CSV
@@ -82,6 +133,7 @@ def load_logement_data():
     return pd.concat(dfs, ignore_index=True)
 
 logement_data = load_logement_data()
+
 
 # === Fonction pour récupérer les données d'une ville ===
 # Fonction pour récupérer les données principales d'une ville (population, superficie, météo, logement, POIs)
@@ -137,8 +189,16 @@ def get_ville_data(ville):
         logement = logement_data[logement_data['INSEE_COM'] == code_insee]
         logement_recent = logement[logement['ANNEE'] == logement['ANNEE'].max()] if not logement.empty else None
         logement_info = logement_recent.iloc[0].to_dict() if logement_recent is not None and not logement_recent.empty else {}
+    
+    # --- Nouvelles données ---
+    socio = get_income_median(code_insee)
+    teleport = get_teleport_scores(commune['nom'])
+    transports = get_next_departures(latitude, longitude)
 
     return {
+        "socio": socio,
+        "teleport": teleport,
+        "transports": transports,
         "nom": commune['nom'],
         "population": commune['population'],
         "superficie_km2": commune['surface'],
@@ -365,6 +425,15 @@ if data_ville1 and data_ville2:
             </div>
             """, unsafe_allow_html=True)
 
+            # Indicateurs socio-économiques
+            st.markdown("<h4>💼 Indicateurs socio-économiques</h4>", unsafe_allow_html=True)
+            st.markdown(f"<p>Revenu médian : {data['socio']} €</p>", unsafe_allow_html=True)
+
+            # Indices qualité de vie
+            st.markdown("<h4>🏙️ Indices qualité de vie (Teleport)</h4>", unsafe_allow_html=True)
+            for cat, score in data['teleport'].items():
+                st.markdown(f"- **{cat}** : {score}/10", unsafe_allow_html=True)
+
 
             st.markdown("</div>", unsafe_allow_html=True)
 else:
@@ -465,3 +534,14 @@ if data_ville1 and data_ville2:
 
     # Fermer le bloc de fond
     st.markdown("</div>", unsafe_allow_html=True)
+
+    # === Transports en commun ===
+    st.markdown("<h2 style='text-align:center;'>🚆 Transports en commun</h2>", unsafe_allow_html=True)
+    for col, data in zip([col1, col2], [data_ville1, data_ville2]):
+        with col:
+            st.markdown(f"<h4>Prochains départs à {data['nom']}</h4>", unsafe_allow_html=True)
+            if data['transports']:
+                for t in data['transports']:
+                    st.markdown(f"- {t}", unsafe_allow_html=True)
+            else:
+                st.markdown("<p>Aucune info de transport dispo.</p>", unsafe_allow_html=True)
