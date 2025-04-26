@@ -6,8 +6,6 @@ import folium
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 
-# Fonction pour récupérer la limite administrative d'une commune depuis OpenStreetMap
-# Fonction pour récupérer uniquement la plus grande limite de la commune
 def get_commune_boundary(nom_commune):
     overpass_url = "http://overpass-api.de/api/interpreter"
     query = f'''
@@ -24,16 +22,18 @@ def get_commune_boundary(nom_commune):
             for member in element["members"]:
                 if member.get("type") == "way" and "geometry" in member:
                     coords = [(point["lat"], point["lon"]) for point in member["geometry"]]
-                    if coords and coords[0] != coords[-1]:
-                        coords.append(coords[0])
-                    boundaries.append(coords)
+                    if coords:
+                        # On ferme le polygone si nécessaire
+                        if coords[0] != coords[-1]:
+                            coords.append(coords[0])
+                        boundaries.append(coords)
 
-    # Si plusieurs polygones, on garde uniquement le plus grand (plus de points)
+    # Si plusieurs polygones, on garde le plus grand
     if boundaries:
         boundaries = sorted(boundaries, key=lambda x: len(x), reverse=True)
-        return boundaries[0]  # Retourne seulement le plus grand
+        return boundaries[0]
 
-    return []
+    return None
 
 
 # === Fonction pour récupérer les points d'intérêt depuis OpenStreetMap ===
