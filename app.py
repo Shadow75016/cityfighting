@@ -210,9 +210,10 @@ def display_map(nom, cp, lat, lon, temp, pois=None):
             color='blue',
             weight=2,
             fill=True,
-            fill_opacity=0.05,
+            fill_opacity=0.1,
             tooltip="Limite administrative"
         ).add_to(m)
+
 
     
     if pois:
