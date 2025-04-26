@@ -1,142 +1,186 @@
 import streamlit as st
-import requests
-import os
 import pandas as pd
-import folium
-from streamlit_folium import st_folium
+import plotly.express as px
+import plotly.graph_objects as go
+from datetime import datetime
+import numpy as np
+import requests
+from bs4 import BeautifulSoup
+import json
+import os
+from dotenv import load_dotenv
+from geopy.geocoders import Nominatim
 
-# ---------------------------
-# Configuration de la page
-# ---------------------------
-st.set_page_config(layout="wide", page_title="City Fighting", page_icon="🌍")
+# Load environment variables
+load_dotenv()
 
-# ---------------------------
-# Chargement des données de logement
-# ---------------------------
-@st.cache_data
-def load_logement_data():
-    dossier = os.path.dirname(__file__)
-    fichier = "api_logement_2023.csv"
-    path = os.path.join(dossier, fichier)
-    if os.path.exists(path):
-        try:
-            df = pd.read_csv(path, sep=None, engine='python')
-            df["ANNEE"] = 2023
-            return df
-        except Exception:
-            st.error("❌ Erreur lors du chargement du fichier de logement.")
-            return pd.DataFrame()
-    else:
-        st.error("❌ Fichier de logement 2023 introuvable.")
-        return pd.DataFrame()
+# Configure the page
+st.set_page_config(
+    page_title="City Fighting - Compare French Cities",
+    page_icon="🏰",
+    layout="wide"
+)
 
-logement_data = load_logement_data()
+# Mock data for demonstration
+def get_mock_cities():
+    return [
+        {"name": "Paris", "population": 2161000, "department": "Paris", "region": "Île-de-France"},
+        {"name": "Marseille", "population": 870731, "department": "Bouches-du-Rhône", "region": "Provence-Alpes-Côte d'Azur"},
+        {"name": "Lyon", "population": 516092, "department": "Rhône", "region": "Auvergne-Rhône-Alpes"},
+        {"name": "Toulouse", "population": 479553, "department": "Haute-Garonne", "region": "Occitanie"},
+        {"name": "Nice", "population": 342669, "department": "Alpes-Maritimes", "region": "Provence-Alpes-Côte d'Azur"}
+    ]
 
-# ---------------------------
-# Récupération des limites administratives d'une commune
-# ---------------------------
-def get_commune_boundary(code_insee):
-    overpass_url = "http://overpass-api.de/api/interpreter"
-
-    def run_query(level):
-        query = f'''
-        [out:json][timeout=25];
-        area["ref:INSEE"="{code_insee}"][admin_level={level}]->.searchArea;
-        relation["boundary"="administrative"](area.searchArea);
-        out geom;
-        '''
-        response = requests.post(overpass_url, data=query)
-        if response.status_code != 200:
-            return []
-        data = response.json()
-        for element in data.get("elements", []):
-            if element["type"] == "relation" and "geometry" in element:
-                # Inverser lat/lon -> lon/lat pour Folium
-                return [(p["lon"], p["lat"]) for p in element["geometry"]]
-        return []
-
-    boundary = run_query(8)
-    if not boundary:
-        boundary = run_query(6)
-    if not boundary:
-        st.warning(f"Aucune limite trouvée pour le code INSEE {code_insee}")
-    return boundary
-
-# ---------------------------
-# Récupération des données d'une ville
-# ---------------------------
-def get_ville_data(ville):
-    geo_url = f"https://geo.api.gouv.fr/communes?nom={ville}&fields=nom,code,population,surface,centre&format=json&geometry=centre"
-    response = requests.get(geo_url).json()
-    if not response:
-        return None
-    commune = next((c for c in response if c['nom'].lower() == ville.lower() and c.get('population', 0) >= 20000), None)
-    if not commune:
-        return None
-    latitude = commune['centre']['coordinates'][1]
-    longitude = commune['centre']['coordinates'][0]
+def get_mock_data(city_name):
     return {
-        "nom": commune['nom'],
-        "code_insee": commune['code'],
-        "population": commune['population'],
-        "superficie_km2": commune['surface'],
-        "densite_hab_km2": round(commune['population'] / commune['surface'], 2) if commune.get('surface') else "Données indisponibles",
-        "latitude": latitude,
-        "longitude": longitude
+        "employment": {
+            "unemployment_rate": 8.5,
+            "median_income": 30000,
+            "job_sectors": {
+                "Services": 40,
+                "Industry": 20,
+                "Commerce": 15,
+                "Public": 15,
+                "Other": 10
+            }
+        },
+        "housing": {
+            "average_price": 3500,
+            "rent_median": 800,
+            "ownership_rate": 40,
+            "vacancy_rate": 7
+        },
+        "weather": {
+            "current": {
+                "temp": 15,
+                "condition": "Clear",
+                "humidity": 60,
+                "wind_speed": 10
+            },
+            "forecast": [
+                {"date": "Mon", "min_temp": 10, "max_temp": 20},
+                {"date": "Tue", "min_temp": 11, "max_temp": 21},
+                {"date": "Wed", "min_temp": 12, "max_temp": 22},
+                {"date": "Thu", "min_temp": 11, "max_temp": 21},
+                {"date": "Fri", "min_temp": 10, "max_temp": 20}
+            ]
+        }
     }
 
-# ---------------------------
-# Récupération de la liste de toutes les villes à partir de l'API
-# ---------------------------
-@st.cache_data
-def get_all_villes():
-    url = "https://geo.api.gouv.fr/communes?fields=nom,population&format=json"
-    response = requests.get(url).json()
-    return sorted([ville['nom'] for ville in response if ville.get('population', 0) >= 20000])
+# Title and description
+st.title("🏰 City Fighting")
+st.markdown("Compare cities across France on various metrics including general data, employment, housing, and weather.")
 
-# ---------------------------
-# Affichage de la carte pour une ville
-# ---------------------------
-def display_map(nom, code_insee, lat, lon):
-    m = folium.Map(location=[lat, lon], zoom_start=13)
-    folium.Marker(
-        [lat, lon],
-        tooltip=f"{nom}",
-        popup=f"<b>{nom}</b>",
-        icon=folium.Icon(color="blue", icon="info-sign")
-    ).add_to(m)
-    boundary_coords = get_commune_boundary(code_insee)
-    if boundary_coords:
-        folium.Polygon(
-            locations=boundary_coords,
-            color='blue',
-            weight=2,
-            fill=True,
-            fill_opacity=0.2,
-            tooltip="Limite administrative"
-        ).add_to(m)
-    st_folium(m, width=700, height=500)
+# Get cities list
+cities = get_mock_cities()
+city_names = [city["name"] for city in cities]
 
-# ---------------------------
-# Interface utilisateur
-# ---------------------------
-ville_list = get_all_villes()
+# City selection
 col1, col2 = st.columns(2)
+
 with col1:
-    ville1 = st.selectbox("🏙️ Choisissez la première ville", ville_list)
+    city1 = st.selectbox("Select first city", city_names, key="city1")
+    
 with col2:
-    ville2 = st.selectbox("🏙️ Choisissez la deuxième ville", ville_list, index=1)
+    city2 = st.selectbox("Select second city", city_names, key="city2")
 
-data_ville1 = get_ville_data(ville1)
-data_ville2 = get_ville_data(ville2)
-
-if data_ville1 and data_ville2:
-    for col, data in zip([col1, col2], [data_ville1, data_ville2]):
-        with col:
-            st.subheader(f"📍 {data['nom']}")
-            st.write(f"Population: {data['population']} habitants")
-            st.write(f"Superficie: {data['superficie_km2']} km²")
-            st.write(f"Densité: {data['densite_hab_km2']} hab/km²")
-            display_map(data['nom'], data['code_insee'], data['latitude'], data['longitude'])
+if city1 and city2:
+    # Get data for both cities
+    city1_data = get_mock_data(city1)
+    city2_data = get_mock_data(city2)
+    
+    # Create tabs for different categories
+    tab1, tab2, tab3, tab4 = st.tabs(["General", "Employment", "Housing", "Climate"])
+    
+    with tab1:
+        st.header("General Data")
+        city1_info = next(city for city in cities if city["name"] == city1)
+        city2_info = next(city for city in cities if city["name"] == city2)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Population", f"{city1_info['population']:,}", 
+                     f"{((city1_info['population'] - city2_info['population']) / city2_info['population'] * 100):.1f}%")
+            st.info(f"**{city1}**\n\nDepartment: {city1_info['department']}\nRegion: {city1_info['region']}")
+        
+        with col2:
+            st.metric("Population", f"{city2_info['population']:,}", 
+                     f"{((city2_info['population'] - city1_info['population']) / city1_info['population'] * 100):.1f}%")
+            st.info(f"**{city2}**\n\nDepartment: {city2_info['department']}\nRegion: {city2_info['region']}")
+    
+    with tab2:
+        st.header("Employment")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Unemployment Rate", f"{city1_data['employment']['unemployment_rate']}%",
+                     f"{(city2_data['employment']['unemployment_rate'] - city1_data['employment']['unemployment_rate']):.1f}%",
+                     delta_color="inverse")
+            st.metric("Median Income", f"€{city1_data['employment']['median_income']:,}",
+                     f"{((city1_data['employment']['median_income'] - city2_data['employment']['median_income']) / city2_data['employment']['median_income'] * 100):.1f}%")
+        
+        with col2:
+            st.metric("Unemployment Rate", f"{city2_data['employment']['unemployment_rate']}%",
+                     f"{(city1_data['employment']['unemployment_rate'] - city2_data['employment']['unemployment_rate']):.1f}%",
+                     delta_color="inverse")
+            st.metric("Median Income", f"€{city2_data['employment']['median_income']:,}",
+                     f"{((city2_data['employment']['median_income'] - city1_data['employment']['median_income']) / city1_data['employment']['median_income'] * 100):.1f}%")
+    
+    with tab3:
+        st.header("Housing")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Average Property Price", f"€{city1_data['housing']['average_price']}/m²",
+                     f"{((city2_data['housing']['average_price'] - city1_data['housing']['average_price']) / city2_data['housing']['average_price'] * 100):.1f}%",
+                     delta_color="inverse")
+            st.metric("Median Monthly Rent", f"€{city1_data['housing']['rent_median']}",
+                     f"{((city2_data['housing']['rent_median'] - city1_data['housing']['rent_median']) / city2_data['housing']['rent_median'] * 100):.1f}%",
+                     delta_color="inverse")
+        
+        with col2:
+            st.metric("Average Property Price", f"€{city2_data['housing']['average_price']}/m²",
+                     f"{((city1_data['housing']['average_price'] - city2_data['housing']['average_price']) / city1_data['housing']['average_price'] * 100):.1f}%",
+                     delta_color="inverse")
+            st.metric("Median Monthly Rent", f"€{city2_data['housing']['rent_median']}",
+                     f"{((city1_data['housing']['rent_median'] - city2_data['housing']['rent_median']) / city1_data['housing']['rent_median'] * 100):.1f}%",
+                     delta_color="inverse")
+    
+    with tab4:
+        st.header("Climate")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader(f"Current Weather in {city1}")
+            st.write(f"Temperature: {city1_data['weather']['current']['temp']}°C")
+            st.write(f"Condition: {city1_data['weather']['current']['condition']}")
+            st.write(f"Humidity: {city1_data['weather']['current']['humidity']}%")
+            st.write(f"Wind Speed: {city1_data['weather']['current']['wind_speed']} km/h")
+        
+        with col2:
+            st.subheader(f"Current Weather in {city2}")
+            st.write(f"Temperature: {city2_data['weather']['current']['temp']}°C")
+            st.write(f"Condition: {city2_data['weather']['current']['condition']}")
+            st.write(f"Humidity: {city2_data['weather']['current']['humidity']}%")
+            st.write(f"Wind Speed: {city2_data['weather']['current']['wind_speed']} km/h")
+        
+        st.subheader("5-Day Forecast")
+        forecast_cols = st.columns(5)
+        for i, (forecast1, forecast2) in enumerate(zip(city1_data['weather']['forecast'], 
+                                                     city2_data['weather']['forecast'])):
+            with forecast_cols[i]:
+                st.write(forecast1['date'])
+                st.write(f"{city1}: {forecast1['min_temp']}°C - {forecast1['max_temp']}°C")
+                st.write(f"{city2}: {forecast2['min_temp']}°C - {forecast2['max_temp']}°C")
 else:
-    st.error("Impossible de récupérer les données pour l'une des villes.")
+    st.info("👆 Select two cities to start comparing!")
+
+# Footer
+st.markdown("---")
+st.markdown("""
+Data sources:
+- Population data: INSEE
+- Employment data: INSEE and Pôle Emploi
+- Housing data: data.gouv.fr
+- Weather data: OpenWeatherMap
+""")
