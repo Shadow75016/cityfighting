@@ -212,6 +212,7 @@ if data_ville1 and data_ville2:
             display_map(data["nom"], data["latitude"], data["longitude"], data["meteo"]["temp"], pois=pois)
 
     # === Comparaison logement ===
+    placeholder = st.empty()
     st.header("🏘️ Comparaison logement")
     def get_val(data, key): return float(data["logement"].get(key, 0))
     fig = make_subplots(rows=1, cols=4, subplot_titles=["Maisons", "Appartements", "Prix m²", "Surface moy."])
