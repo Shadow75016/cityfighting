@@ -6,34 +6,31 @@ import folium
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 
-def get_commune_boundary(nom):
-    overpass_url = "http://overpass-api.de/api/interpreter"
-    query = f'''
-    [out:json][timeout:25];
-    relation["admin_level"="8"]["name"="{nom}"];
-    out geom;
-    '''
-    response = requests.get(overpass_url, params={'data': query})
-    data = response.json()
-    boundaries = []
-
-    for element in data.get("elements", []):
-        if element["type"] == "relation" and "members" in element:
-            for member in element["members"]:
-                if member.get("type") == "way" and "geometry" in member:
-                    coords = [(point["lat"], point["lon"]) for point in member["geometry"]]
-                    if coords:
-                        # On ferme le polygone si nécessaire
-                        if coords[0] != coords[-1]:
-                            coords.append(coords[0])
-                        boundaries.append(coords)
-
-    # Si plusieurs polygones, on garde le plus grand
-    if boundaries:
-        boundaries = sorted(boundaries, key=lambda x: len(x), reverse=True)
-        return boundaries[0]
-
-    return None
+boundary_coords = get_commune_boundary(nom)
+if boundary_coords:
+    if isinstance(boundary_coords[0], tuple):
+        # Cas 1 : 1 seul polygone direct
+        folium.Polygon(
+            locations=boundary_coords,
+            color='blue',
+            weight=2,
+            fill=True,
+            fill_opacity=0.1,
+            tooltip="Limite administrative"
+        ).add_to(m)
+    else:
+        # Cas 2 (rare) : plusieurs sous-contours (si jamais on renvoie une liste de listes)
+        for coords in boundary_coords:
+            folium.Polygon(
+                locations=coords,
+                color='blue',
+                weight=2,
+                fill=True,
+                fill_opacity=0.1,
+                tooltip="Limite administrative"
+            ).add_to(m)
+else:
+    st.warning(f"Aucune limite trouvée pour {nom} 🚫")
 
 
 # === Fonction pour récupérer les points d'intérêt depuis OpenStreetMap ===
@@ -51,7 +48,15 @@ def get_pois_from_overpass(lat, lon, rayon=5000):
     out body;
     """
     response = requests.get(overpass_url, params={'data': query})
+    if not response.ok:
+        st.error("Erreur de requête Overpass.")
+        return None
+    
     data = response.json()
+    if not data.get("elements"):
+        st.error(f"❌ Aucune limite trouvée pour la ville : {nom_commune}")
+        return None
+
 
     pois = []
     for element in data.get("elements", []):
