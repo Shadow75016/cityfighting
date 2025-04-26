@@ -6,11 +6,11 @@ import folium
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 
-def get_commune_boundary(nom_commune):
+def get_commune_boundary(nom):
     overpass_url = "http://overpass-api.de/api/interpreter"
     query = f'''
     [out:json][timeout:25];
-    relation["admin_level"="8"]["name"="{nom_commune}"];
+    relation["admin_level"="8"]["name"="{nom}"];
     out geom;
     '''
     response = requests.get(overpass_url, params={'data': query})
