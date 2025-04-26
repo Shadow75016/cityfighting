@@ -9,17 +9,26 @@ import plotly.graph_objects as go
 # Fonction pour récupérer la limite administrative d'une commune depuis OpenStreetMap
 def get_commune_boundary(nom_commune):
     overpass_url = "http://overpass-api.de/api/interpreter"
-    query = f"""
+    query = f'''
     [out:json][timeout:25];
-    relation["admin_level"="8"]["name"=\"{nom_commune}\"];
+    relation["admin_level"="8"]["name"="{nom_commune}"];
     out geom;
-    """
+    '''
     response = requests.get(overpass_url, params={'data': query})
     data = response.json()
+    boundaries = []
+
     for element in data.get("elements", []):
-        if element["type"] == "relation" and "geometry" in element:
-            return [(point["lat"], point["lon"]) for point in element["geometry"]]
-    return []
+        if element["type"] == "relation" and "members" in element:
+            for member in element["members"]:
+                if member.get("type") == "way" and "geometry" in member:
+                    coords = [(point["lat"], point["lon"]) for point in member["geometry"]]
+                    # On ferme le polygone si nécessaire
+                    if coords and coords[0] != coords[-1]:
+                        coords.append(coords[0])
+                    boundaries.append(coords)
+
+    return boundaries
 
 # === Fonction pour récupérer les points d'intérêt depuis OpenStreetMap ===
 # Fonction pour récupérer les points d'intérêt autour d'une commune (écoles, hôpitaux, gares, parcs)
