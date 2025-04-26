@@ -72,14 +72,21 @@ def get_income_median(code_insee):
 
 @st.cache_data
 def get_teleport_scores(ville):
-    """Indices qualité de vie (Teleport Cities)"""
+    """Indices qualité de vie (Teleport Cities) — gestion d’erreur incluse."""
     slug = ville.lower().replace(' ', '-') + '_fr'
     url = f"https://api.teleport.org/api/urban_areas/slug:{slug}/scores/"
-    r = requests.get(url)
-    if r.status_code != 200:
+    try:
+        r = requests.get(url, timeout=5)
+        r.raise_for_status()
+        data = r.json()
+        return {
+            cat['name']: round(cat['score_out_of_10'], 1)
+            for cat in data.get('categories', [])
+        }
+    except requests.exceptions.RequestException:
+        # quelconque problème réseau ou HTTP → on renvoie juste un dict vide
         return {}
-    return {cat['name']: round(cat['score_out_of_10'],1)
-            for cat in r.json().get('categories', [])}
+
 
 @st.cache_data
 def get_next_departures(lat, lon):
