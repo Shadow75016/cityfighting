@@ -28,14 +28,14 @@ def load_logement_data():
 
 logement_data = load_logement_data()
 
-def get_commune_boundary(nom_commune):
+def get_commune_boundary(code_insee):
     overpass_url = "http://overpass-api.de/api/interpreter"
-    query = (
-        '[out:json][timeout:25];'
-        'area["name"="{0}"]["admin_level"="8"]->.searchArea;'
-        'relation["boundary"="administrative"](area.searchArea);'
-        'out geom;'
-    ).format(nom_commune)
+    query = f'''
+    [out:json][timeout:25];
+    area["ref:INSEE"="{code_insee}"][admin_level=8]->.searchArea;
+    relation(area.searchArea)["boundary"="administrative"];
+    out geom;
+    '''
     response = requests.post(overpass_url, data=query)
     if response.status_code != 200:
         st.warning(f"Erreur Overpass: {response.status_code}")
@@ -44,7 +44,7 @@ def get_commune_boundary(nom_commune):
     for element in data.get("elements", []):
         if element["type"] == "relation" and "geometry" in element:
             return [(point["lat"], point["lon"]) for point in element["geometry"]]
-    st.warning(f"Aucune limite trouvée pour {nom_commune}")
+    st.warning(f"Aucune limite trouvée pour le code INSEE {code_insee}")
     return []
 
 def get_ville_data(ville):
@@ -59,6 +59,7 @@ def get_ville_data(ville):
     longitude = commune['centre']['coordinates'][0]
     return {
         "nom": commune['nom'],
+        "code_insee": commune['code'],
         "population": commune['population'],
         "superficie_km2": commune['surface'],
         "densite_hab_km2": round(commune['population'] / commune['surface'], 2) if commune.get('surface') else "Données indisponibles",
@@ -71,7 +72,7 @@ def get_all_villes():
     response = requests.get(url).json()
     return sorted([ville['nom'] for ville in response if ville.get('population', 0) >= 20000])
 
-def display_map(nom, lat, lon):
+def display_map(nom, code_insee, lat, lon):
     m = folium.Map(location=[lat, lon], zoom_start=13)
     folium.Marker(
         [lat, lon],
@@ -79,7 +80,7 @@ def display_map(nom, lat, lon):
         popup=f"<b>{nom}</b>",
         icon=folium.Icon(color="blue", icon="info-sign")
     ).add_to(m)
-    boundary_coords = get_commune_boundary(nom)
+    boundary_coords = get_commune_boundary(code_insee)
     if boundary_coords:
         folium.Polygon(
             locations=boundary_coords,
@@ -108,6 +109,6 @@ if data_ville1 and data_ville2:
             st.write(f"Population: {data['population']} habitants")
             st.write(f"Superficie: {data['superficie_km2']} km²")
             st.write(f"Densité: {data['densite_hab_km2']} hab/km²")
-            display_map(data['nom'], data['latitude'], data['longitude'])
+            display_map(data['nom'], data['code_insee'], data['latitude'], data['longitude'])
 else:
     st.error("Impossible de récupérer les données pour l'une des villes.")
