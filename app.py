@@ -1,24 +1,20 @@
 import streamlit as st
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 import requests
 import os
-from datetime import datetime
-from dotenv import load_dotenv
+import pandas as pd
 import folium
 from streamlit_folium import st_folium
 
-# Load environment variables
-load_dotenv()
+st.set_page_config(layout="wide", page_title="City Fighting", page_icon="🌍")
 
-# Functions
 @st.cache_data
 def load_logement_data():
+    dossier = os.path.dirname(__file__)
     fichier = "api_logement_2023.csv"
-    if os.path.exists(fichier):
+    path = os.path.join(dossier, fichier)
+    if os.path.exists(path):
         try:
-            df = pd.read_csv(fichier, sep=None, engine='python')
+            df = pd.read_csv(path, sep=None, engine='python')
             df["ANNEE"] = 2023
             return df
         except Exception:
@@ -28,13 +24,35 @@ def load_logement_data():
         st.error("❌ Fichier de logement 2023 introuvable.")
         return pd.DataFrame()
 
-@st.cache_data
-def get_all_villes():
-    url = "https://geo.api.gouv.fr/communes?fields=nom,population&format=json"
-    response = requests.get(url).json()
-    return sorted([ville['nom'] for ville in response if ville.get('population', 0) >= 20000])
+logement_data = load_logement_data()
 
-@st.cache_data
+def get_commune_boundary(code_insee):
+    overpass_url = "http://overpass-api.de/api/interpreter"
+
+    def run_query(level):
+        query = f'''
+        [out:json][timeout:25];
+        area["ref:INSEE"="{code_insee}"][admin_level={level}]->.searchArea;
+        relation["boundary"="administrative"](area.searchArea);
+        out geom;
+        '''
+        response = requests.post(overpass_url, data=query)
+        if response.status_code != 200:
+            return []
+        data = response.json()
+        for element in data.get("elements", []):
+            if element["type"] == "relation" and "geometry" in element:
+                # ⚠️ Inverser lat/lon -> lon/lat pour Folium
+                return [(p["lon"], p["lat"]) for p in element["geometry"]]
+        return []
+
+    boundary = run_query(8)
+    if not boundary:
+        boundary = run_query(6)
+    if not boundary:
+        st.warning(f"Aucune limite trouvée pour le code INSEE {code_insee}")
+    return boundary
+
 def get_ville_data(ville):
     geo_url = f"https://geo.api.gouv.fr/communes?nom={ville}&fields=nom,code,population,surface,centre&format=json&geometry=centre"
     response = requests.get(geo_url).json()
@@ -55,132 +73,48 @@ def get_ville_data(ville):
         "longitude": longitude
     }
 
-def get_weather(city_name):
-    api_key = os.getenv("OPENWEATHER_API_KEY")
-    if not api_key:
-        return None
-    url = f"https://api.openweathermap.org/data/2.5/weather?q={city_name},FR&appid={api_key}&units=metric&lang=fr"
-    r = requests.get(url)
-    if r.status_code == 200:
-        return r.json()
-    else:
-        return None
+def get_all_villes():
+    url = "https://geo.api.gouv.fr/communes?fields=nom,population&format=json"
+    response = requests.get(url).json()
+    return sorted([ville['nom'] for ville in response if ville.get('population', 0) >= 20000])
 
-# Load data
-logement_data = load_logement_data()
+def display_map(nom, code_insee, lat, lon):
+    m = folium.Map(location=[lat, lon], zoom_start=13)
+    folium.Marker(
+        [lat, lon],
+        tooltip=f"{nom}",
+        popup=f"<b>{nom}</b>",
+        icon=folium.Icon(color="blue", icon="info-sign")
+    ).add_to(m)
+    boundary_coords = get_commune_boundary(code_insee)
+    if boundary_coords:
+        folium.Polygon(
+            locations=boundary_coords,
+            color='blue',
+            weight=2,
+            fill=True,
+            fill_opacity=0.2,
+            tooltip="Limite administrative"
+        ).add_to(m)
+    st_folium(m, width=700, height=500)
 
-# Configure the page
-st.set_page_config(
-    page_title="City Fighting - Compare French Cities",
-    page_icon="\ud83c\udff0",
-    layout="wide"
-)
-
-# Title and description
-st.title("\ud83c\udff0 City Fighting")
-st.markdown("Compare cities across France on various metrics including general data, employment, housing, and weather.")
-
-# Get cities list
-city_names = get_all_villes()
-
-# City selection
+ville_list = get_all_villes()
 col1, col2 = st.columns(2)
-
 with col1:
-    city1 = st.selectbox("Select first city", city_names, key="city1")
-
+    ville1 = st.selectbox("🏙️ Choisissez la première ville", ville_list)
 with col2:
-    city2 = st.selectbox("Select second city", city_names, key="city2")
+    ville2 = st.selectbox("🏙️ Choisissez la deuxième ville", ville_list, index=1)
 
-if city1 and city2:
-    city1_info = get_ville_data(city1)
-    city2_info = get_ville_data(city2)
+data_ville1 = get_ville_data(ville1)
+data_ville2 = get_ville_data(ville2)
 
-    if not city1_info or not city2_info:
-        st.error("Erreur lors de la récupération des données de la ville.")
-    else:
-        tab1, tab2, tab3, tab4 = st.tabs(["General", "Employment", "Housing", "Climate"])
-
-        with tab1:
-            st.header("General Data")
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Population", f"{city1_info['population']:,}",
-                         f"{((city1_info['population'] - city2_info['population']) / city2_info['population'] * 100):.1f}%")
-                st.info(f"**{city1_info['nom']}**\n\nSurface: {city1_info['superficie_km2']} km\u00b2\nDensité: {city1_info['densite_hab_km2']} hab/km\u00b2")
-            with col2:
-                st.metric("Population", f"{city2_info['population']:,}",
-                         f"{((city2_info['population'] - city1_info['population']) / city1_info['population'] * 100):.1f}%")
-                st.info(f"**{city2_info['nom']}**\n\nSurface: {city2_info['superficie_km2']} km\u00b2\nDensité: {city2_info['densite_hab_km2']} hab/km\u00b2")
-
-        with tab2:
-            st.header("Employment")
-            st.info("\u26a0\ufe0f Emploi: Données statiques pour l'instant")
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Unemployment Rate", "8.5%")
-                st.metric("Median Income", "\u20ac30,000")
-            with col2:
-                st.metric("Unemployment Rate", "8.0%")
-                st.metric("Median Income", "\u20ac31,500")
-
-        with tab3:
-            st.header("Housing")
-
-            logement1 = logement_data[logement_data['LIBGEO'].str.lower() == city1.lower()]
-            logement2 = logement_data[logement_data['LIBGEO'].str.lower() == city2.lower()]
-
-            col1, col2 = st.columns(2)
-
-            with col1:
-                if not logement1.empty:
-                    st.metric("Prix moyen au m\u00b2", f"{int(logement1['prix_m2_appartement'].values[0]):,} \u20ac/m\u00b2")
-                    st.metric("Taux de vacance", f"{logement1['taux_vacance'].values[0]:.1f}%")
-                else:
-                    st.warning(f"Pas de données logement pour {city1}.")
-
-            with col2:
-                if not logement2.empty:
-                    st.metric("Prix moyen au m\u00b2", f"{int(logement2['prix_m2_appartement'].values[0]):,} \u20ac/m\u00b2")
-                    st.metric("Taux de vacance", f"{logement2['taux_vacance'].values[0]:.1f}%")
-                else:
-                    st.warning(f"Pas de données logement pour {city2}.")
-
-        with tab4:
-            st.header("Climate")
-            weather1 = get_weather(city1)
-            weather2 = get_weather(city2)
-
-            col1, col2 = st.columns(2)
-            with col1:
-                if weather1:
-                    st.subheader(f"{city1}")
-                    st.write(f"Température: {weather1['main']['temp']} \u00b0C")
-                    st.write(f"Condition: {weather1['weather'][0]['description']}")
-                    st.write(f"Humidité: {weather1['main']['humidity']}%")
-                    st.write(f"Vent: {weather1['wind']['speed']} km/h")
-                else:
-                    st.warning(f"Météo indisponible pour {city1}.")
-
-            with col2:
-                if weather2:
-                    st.subheader(f"{city2}")
-                    st.write(f"Température: {weather2['main']['temp']} \u00b0C")
-                    st.write(f"Condition: {weather2['weather'][0]['description']}")
-                    st.write(f"Humidité: {weather2['main']['humidity']}%")
-                    st.write(f"Vent: {weather2['wind']['speed']} km/h")
-                else:
-                    st.warning(f"Météo indisponible pour {city2}.")
-
+if data_ville1 and data_ville2:
+    for col, data in zip([col1, col2], [data_ville1, data_ville2]):
+        with col:
+            st.subheader(f"📍 {data['nom']}")
+            st.write(f"Population: {data['population']} habitants")
+            st.write(f"Superficie: {data['superficie_km2']} km²")
+            st.write(f"Densité: {data['densite_hab_km2']} hab/km²")
+            display_map(data['nom'], data['code_insee'], data['latitude'], data['longitude'])
 else:
-    st.info("\ud83d\udc46 Select two cities to start comparing!")
-
-# Footer
-st.markdown("---")
-st.markdown("""
-Data sources:
-- Population data: geo.api.gouv.fr
-- Employment data: static (to be replaced)
-- Housing data: api_logement_2023.csv
-- Weather data: OpenWeatherMap
-""")
+    st.error("Impossible de récupérer les données pour l'une des villes.")
