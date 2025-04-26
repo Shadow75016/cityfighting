@@ -10,21 +10,19 @@ st.set_page_config(layout="wide", page_title="City Fighting", page_icon="🌍")
 @st.cache_data
 def load_logement_data():
     dossier = os.path.dirname(__file__)
-    fichiers = [f"api_logement_{annee}.csv" for annee in range(2014, 2024)]
-    dfs = []
-    for f in fichiers:
-        path = os.path.join(dossier, f)
-        if os.path.exists(path):
-            try:
-                df = pd.read_csv(path, sep=None, engine='python')
-                df["ANNEE"] = int(f.split("_")[-1].split(".")[0])
-                dfs.append(df)
-            except Exception:
-                pass
-    if not dfs:
-        st.error("❌ Aucun fichier de logement n'a pu être chargé.")
+    fichier = "api_logement_2023.csv"
+    path = os.path.join(dossier, fichier)
+    if os.path.exists(path):
+        try:
+            df = pd.read_csv(path, sep=None, engine='python')
+            df["ANNEE"] = 2023
+            return df
+        except Exception:
+            st.error("❌ Erreur lors du chargement du fichier de logement.")
+            return pd.DataFrame()
+    else:
+        st.error("❌ Fichier de logement 2023 introuvable.")
         return pd.DataFrame()
-    return pd.concat(dfs, ignore_index=True)
 
 logement_data = load_logement_data()
 
