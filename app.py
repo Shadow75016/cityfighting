@@ -214,7 +214,7 @@ def display_map(nom, cp, lat, lon, temp, pois=None):
             tooltip="Limite administrative"
         ).add_to(m)
 
-        
+    
     if pois:
         for poi in pois:
             if poi["type"] is None:
