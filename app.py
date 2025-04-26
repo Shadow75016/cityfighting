@@ -3,552 +3,285 @@ import requests
 import os
 import pandas as pd
 import folium
+from concurrent.futures import ThreadPoolExecutor
+from streamlit_folium import st_folium
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 
-# === Fonction pour récupérer les points d'intérêt depuis OpenStreetMap ===
-# Fonction pour récupérer les points d'intérêt autour d'une commune (écoles, hôpitaux, gares, parcs)
-def get_pois_from_overpass(lat, lon, rayon=5000):
-    overpass_url = "http://overpass-api.de/api/interpreter"
-    query = f"""
-    [out:json][timeout:25];
-    (
-      node["amenity"="school"](around:{rayon},{lat},{lon});
-      node["amenity"="hospital"](around:{rayon},{lat},{lon});
-            node["leisure"="park"](around:{rayon},{lat},{lon});
-      node["railway"="station"](around:{rayon},{lat},{lon});
-    );
-    out body;
-    """
-    response = requests.get(overpass_url, params={'data': query})
-    data = response.json()
-
-    pois = []
-    for element in data.get("elements", []):
-        nom = element.get("tags", {}).get("name", "Sans nom")
-        type_poi = (
-            element["tags"].get("amenity") or
-            element["tags"].get("tourism") or
-            element["tags"].get("leisure") or
-            element["tags"].get("railway") or
-            "Autre"
-        )
-
-        # Traduction des types
-        translations = {
-            "school": "école",
-            "hospital": "hôpitaux",
-                        "park": "parc",
-            "station": "gare",
-            "Autre": "Autre"
-        }
-        type_poi = translations.get(type_poi)
-        pois.append({
-            "nom": nom,
-            "type": type_poi,
-            "lat": element["lat"],
-            "lon": element["lon"]
-        })
-
-    return pois
-
-from streamlit_folium import st_folium
-
+# === Configuration ===
 st.set_page_config(layout="wide", page_title="City Fighting", page_icon="🌍")
 
+# === Fonctions API avec timeout et gestion d'erreur ===
 @st.cache_data
 def get_income_median(code_insee):
-    """Revenu médian (API INSEE, clé INSEE_API_KEY requise)"""
+    """Revenu médian (API INSEE)"""
     url = f"https://api.insee.fr/entreprises/sirene/V3/siret?q=codeCommuneEtablissement:{code_insee}"
     headers = {"Authorization": f"Bearer {os.environ.get('INSEE_API_KEY','')}"}
-    r = requests.get(url, headers=headers)
-    if r.status_code != 200:
+    try:
+        r = requests.get(url, headers=headers, timeout=5)
+        r.raise_for_status()
+        data = r.json()
+        revenum = data.get('unites_legales',[{}])[0] \
+                   .get('donnees_communes',{}) \
+                   .get('revenueMedian')
+        return round(revenum,2) if revenum else "N/A"
+    except requests.RequestException:
         return "N/A"
-    data = r.json()
-    revenum = data.get('unites_legales',[{}])[0] \
-               .get('donnees_communes',{}) \
-               .get('revenueMedian')
-    return round(revenum,2) if revenum else "N/A"
 
 @st.cache_data
 def get_teleport_scores(ville):
-    """Indices qualité de vie (Teleport Cities) — gestion d’erreur incluse."""
+    """Indices qualité de vie (Teleport Cities)"""
     slug = ville.lower().replace(' ', '-') + '_fr'
     url = f"https://api.teleport.org/api/urban_areas/slug:{slug}/scores/"
     try:
         r = requests.get(url, timeout=5)
         r.raise_for_status()
         data = r.json()
-        return {
-            cat['name']: round(cat['score_out_of_10'], 1)
-            for cat in data.get('categories', [])
-        }
-    except requests.exceptions.RequestException:
-        # quelconque problème réseau ou HTTP → on renvoie juste un dict vide
+        return {cat['name']: round(cat['score_out_of_10'],1) for cat in data.get('categories', [])}
+    except requests.RequestException:
         return {}
-
 
 @st.cache_data
 def get_next_departures(lat, lon):
-    """Prochains départs transports (Navitia, clé NAVITIA_TOKEN requise)"""
+    """Prochains départs transports (Navitia)"""
     token = os.environ.get('NAVITIA_TOKEN','')
     if not token:
         return []
-    url = (f"https://api.navitia.io/v1/coverage/fr-idf/"
-           f"stop_areas_nearby?lat={lat}&lon={lon}&count=3")
-    r = requests.get(url, auth=(token,''))
-    if r.status_code != 200:
+    url = f"https://api.navitia.io/v1/coverage/fr-idf/stop_areas_nearby?lat={lat}&lon={lon}&count=3"
+    try:
+        r = requests.get(url, auth=(token,''), timeout=5)
+        r.raise_for_status()
+        transports = []
+        for sa in r.json().get('stop_areas', [])[:3]:
+            name = sa['stop_area']['name']
+            sa_id = sa['stop_area']['id']
+            try:
+                sched = requests.get(
+                    f"https://api.navitia.io/v1/coverage/fr-idf/stop_areas/{sa_id}/stop_schedules",
+                    auth=(token,''), timeout=5
+                )
+                sched.raise_for_status()
+                for s in sched.json().get('stop_schedules', [])[:2]:
+                    mode = s['display_informations']['commercial_mode']
+                    transports.append(f"{name} – {mode} à {s['date_time']}")
+            except requests.RequestException:
+                continue
+        return transports
+    except requests.RequestException:
         return []
-    transports = []
-    for sa in r.json().get('stop_areas', [])[:3]:
-        name = sa['stop_area']['name']
-        sa_id = sa['stop_area']['id']
-        sched = requests.get(
-            f"https://api.navitia.io/v1/coverage/fr-idf/"
-            f"stop_areas/{sa_id}/stop_schedules",
-            auth=(token,'')
-        )
-        if sched.status_code != 200:
-            continue
-        for s in sched.json().get('stop_schedules', [])[:2]:
-            mode = s['display_informations']['commercial_mode']
-            transports.append(f"{name} – {mode} à {s['date_time']}")
-    return transports
 
-# === Chargement des données logement (fusionnées) ===
-# Fonction pour charger et fusionner les données logement depuis plusieurs CSV
+@st.cache_data
+def fetch_meteo(lat, lon):
+    """Météo (Open-Meteo)"""
+    url = (
+        f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"  
+        f"&current_weather=true&daily=temperature_2m_max,temperature_2m_min,precipitation_sum"
+        f"&timezone=Europe%2FParis"
+    )
+    try:
+        r = requests.get(url, timeout=5)
+        r.raise_for_status()
+        md = r.json()
+        current = md.get('current_weather', {})
+        previsions = [
+            {"date": d, "temp_min": tmin, "temp_max": tmax, "precip": prec}
+            for d, tmin, tmax, prec in zip(
+                md['daily']['time'],
+                md['daily']['temperature_2m_min'],
+                md['daily']['temperature_2m_max'],
+                md['daily']['precipitation_sum']
+            )
+        ]
+        return {
+            "temp": current.get('temperature', 'N/A'),
+            "statut": f"Vent: {current.get('windspeed', 'N/A')} km/h",
+            "previsions": previsions
+        }
+    except requests.RequestException:
+        return {"temp": "N/A", "statut": "Météo non dispo", "previsions": []}
+
+@st.cache_data
+def get_pois_from_overpass(lat, lon, rayon=3000):
+    """Points d'intérêt (OSM)"""
+    overpass_url = "http://overpass-api.de/api/interpreter"
+    query = f"""
+    [out:json][timeout:25];
+    (
+      node["amenity"="school"](around:{rayon},{lat},{lon});
+      node["amenity"="hospital"](around:{rayon},{lat},{lon});
+      node["leisure"="park"](around:{rayon},{lat},{lon});
+      node["railway"="station"](around:{rayon},{lat},{lon});
+    );
+    out body;
+    """
+    try:
+        r = requests.get(overpass_url, params={'data': query}, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+    except requests.RequestException:
+        return []
+    pois = []
+    translations = {"school": "école", "hospital": "hôpitaux", "park": "parc", "station": "gare"}
+    for e in data.get('elements', []):
+        nom = e.get('tags', {}).get('name', 'Sans nom')
+        key = e['tags'].get('amenity') or e['tags'].get('tourism') or e['tags'].get('leisure') or e['tags'].get('railway')
+        pois.append({
+            'nom': nom,
+            'type': translations.get(key, 'Autre'),
+            'lat': e['lat'], 'lon': e['lon']
+        })
+    return pois
+
 @st.cache_data
 def load_logement_data():
+    """Chargement des données logement"""
     dossier = os.path.dirname(__file__)
-    fichiers = [f"api_logement_{annee}.csv" for annee in range(2014, 2024)]
+    files = [f"api_logement_{y}.csv" for y in range(2014, 2024)]
     dfs = []
-
-    for f in fichiers:
+    for f in files:
         path = os.path.join(dossier, f)
         if os.path.exists(path):
             try:
-                df = pd.read_csv(path, sep=None, engine='python')
-                df["ANNEE"] = int(f.split("_")[-1].split(".")[0])
+                df = pd.read_csv(path, engine='python')
+                df['ANNEE'] = int(f.split('_')[-1].split('.')[0])
                 dfs.append(df)
-            except Exception:
+            except:
                 pass
-
-    if not dfs:
-        st.error("❌ Aucun fichier de logement n'a pu être chargé.")
-        return pd.DataFrame()
-
-    return pd.concat(dfs, ignore_index=True)
+    return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
 
 logement_data = load_logement_data()
 
-
-# === Fonction pour récupérer les données d'une ville ===
-# Fonction pour récupérer les données principales d'une ville (population, superficie, météo, logement, POIs)
-def get_ville_data(ville):
-    geo_url = f"https://geo.api.gouv.fr/communes?nom={ville}&fields=nom,code,population,surface,centre&format=json&geometry=centre"
-    response = requests.get(geo_url).json()
-
-    if not response:
-        return None
-
-    commune = next((c for c in response if c['nom'].lower() == ville.lower() and c.get('population', 0) >= 20000), None)
-    if not commune:
-        return None
-
-    code_insee = commune['code']
-    densite = round(commune['population'] / commune['surface'], 2) if commune.get('surface') else "Données indisponibles"
-    latitude = commune['centre']['coordinates'][1]
-    longitude = commune['centre']['coordinates'][0]
-
+@st.cache_data
+def get_all_villes():
+    """Liste des communes > 20k hab"""
     try:
-        meteo_url = (
-            f"https://api.open-meteo.com/v1/forecast?latitude={latitude}&longitude={longitude}"
-            f"&current_weather=true&daily=temperature_2m_max,temperature_2m_min,precipitation_sum"
-            f"&timezone=Europe%2FParis"
+        r = requests.get(
+            "https://geo.api.gouv.fr/communes?fields=nom,population&format=json",
+            timeout=5
         )
-        r = requests.get(meteo_url)
         r.raise_for_status()
-        meteo_data = r.json()
-        temp = meteo_data['current_weather']['temperature']
-        statut = f"Vent: {meteo_data['current_weather']['windspeed']} km/h"
-        daily_forecast = [
-            {
-                "date": d,
-                "temp_min": tmin,
-                "temp_max": tmax,
-                "precip": precip
-            }
-            for d, tmin, tmax, precip in zip(
-                meteo_data['daily']['time'],
-                meteo_data['daily']['temperature_2m_min'],
-                meteo_data['daily']['temperature_2m_max'],
-                meteo_data['daily']['precipitation_sum']
-            )
-        ]
+        data = r.json()
+        return sorted([c['nom'] for c in data if c.get('population', 0) >= 20000])
     except:
-        temp = "N/A"
-        statut = "Météo non disponible"
-        daily_forecast = []
+        return []
 
+@st.cache_data
+def get_ville_data(ville):
+    """Récupère toutes les données d'une ville en parallèle"""
+    # Géolocalisation
+    try:
+        r = requests.get(
+            f"https://geo.api.gouv.fr/communes?nom={ville}&fields=nom,code,population,surface,centre&format=json",
+            timeout=5
+        )
+        r.raise_for_status()
+        resp = r.json()
+        commune = next((c for c in resp if c['nom'].lower() == ville.lower()), None)
+        code = commune['code']
+        pop = commune['population']
+        surf = commune.get('surface', 0)
+        dens = round(pop/surf, 2) if surf else "N/A"
+        lat = commune['centre']['coordinates'][1]
+        lon = commune['centre']['coordinates'][0]
+    except:
+        return None
+
+    # Appels parallèles
+    with ThreadPoolExecutor() as exe:
+        f_meteo     = exe.submit(fetch_meteo, lat, lon)
+        f_socio     = exe.submit(get_income_median, code)
+        f_telep     = exe.submit(get_teleport_scores, ville)
+        f_trans     = exe.submit(get_next_departures, lat, lon)
+    meteo      = f_meteo.result()
+    socio      = f_socio.result()
+    teleport   = f_telep.result()
+    transports = f_trans.result()
+
+    # Logement
     logement_info = {}
     if not logement_data.empty:
-        logement_data['INSEE_COM'] = logement_data['INSEE_COM'].apply(lambda x: str(int(float(x))).zfill(5) if pd.notnull(x) else None)
-        logement = logement_data[logement_data['INSEE_COM'] == code_insee]
-        logement_recent = logement[logement['ANNEE'] == logement['ANNEE'].max()] if not logement.empty else None
-        logement_info = logement_recent.iloc[0].to_dict() if logement_recent is not None and not logement_recent.empty else {}
-    
-    # --- Nouvelles données ---
-    socio = get_income_median(code_insee)
-    teleport = get_teleport_scores(commune['nom'])
-    transports = get_next_departures(latitude, longitude)
+        df = logement_data.copy()
+        df['INSEE_COM'] = df['INSEE_COM'].apply(lambda x: str(int(float(x))).zfill(5) if pd.notnull(x) else None)
+        rec = df[df['INSEE_COM'] == code]
+        if not rec.empty:
+            recm = rec[rec['ANNEE'] == rec['ANNEE'].max()]
+            if not recm.empty:
+                logement_info = recm.iloc[0].to_dict()
 
     return {
-        "socio": socio,
-        "teleport": teleport,
-        "transports": transports,
-        "nom": commune['nom'],
-        "population": commune['population'],
-        "superficie_km2": commune['surface'],
-        "densite_hab_km2": densite,
-        "latitude": latitude,
-        "longitude": longitude,
-        "meteo": {
-            "temp": temp,
-            "statut": statut,
-            "previsions": daily_forecast
-        },
-        "logement": logement_info,
-        "pois": get_pois_from_overpass(latitude, longitude)
+        'nom': commune['nom'],
+        'population': pop,
+        'superficie_km2': surf,
+        'densite_hab_km2': dens,
+        'latitude': lat,
+        'longitude': lon,
+        'meteo': meteo,
+        'logement': logement_info,
+        'socio': socio,
+        'teleport': teleport,
+        'transports': transports
     }
 
-# === Liste des villes avec population > 20 000 ===
-# Fonction pour obtenir toutes les villes de France de plus de 20 000 habitants
-def get_all_villes():
-    url = "https://geo.api.gouv.fr/communes?fields=nom,population&format=json"
-    response = requests.get(url).json()
-    return sorted([ville['nom'] for ville in response if ville.get('population', 0) >= 20000])
-
-
-# === Affichage d'une carte interactive avec folium ===
-# Fonction pour afficher la carte interactive Folium avec POIs et limites communales
-def display_map(nom, cp, lat, lon, temp, pois=None):
-    m = folium.Map(location=[lat, lon], zoom_start=13)
-    folium.Marker(
-        [lat, lon],
-        tooltip=f"{nom} - {temp}°C",
-        popup=f"<b>{nom}</b><br>Température: {temp}°C",
-        icon=folium.Icon(color="blue", icon="info-sign")
-    ).add_to(m)
-        
-    if pois:
-        for poi in pois:
-            if poi["type"] is None:
-                continue
-            poi_type = poi["type"].lower()
-            color_map = {
-                "école": "purple",
-                "hôpitaux": "red",
-                "musée": "cadetblue",
-                "parc": "green",
-                "gare": "orange"
-            }
-            icon_color = color_map.get(poi_type)
-
-            folium.Marker(
-                location=[poi["lat"], poi["lon"]],
-                tooltip=poi["type"].capitalize(),
-                icon=folium.Icon(color=icon_color, icon="info-sign")
-            ).add_to(m)
-        
-    st_folium(m, width=700, height=500)
-
-# === UI PRINCIPALE ===
-
-
-st.markdown("""
-    <style>
-        html, body, .main {
-            background-color: #0b0f19 !important;
-            color: #e1e8ed;
-            font-family: 'Segoe UI', sans-serif;
-        }
-
-        .main h1 {
-            color: #00b4fc !important;
-            font-weight: 800;
-            letter-spacing: 0.5px;
-        }
-
-        .stSelectbox > div {
-            background-color: #1e2633;
-            color: #e1e8ed;
-            border-radius: 8px;
-        }
-
-        hr {
-            border-top: 1px solid #2f3e54;
-            margin: 1.5rem 0;
-        }
-
-        .card {
-            background: linear-gradient(145deg, #1a2332, #111927);
-            padding: 25px;
-            border-radius: 18px;
-            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
-            margin-bottom: 20px;
-            transition: transform 0.3s ease;
-        }
-
-        .card:hover {
-            transform: scale(1.01);
-        }
-
-        .card h3 {
-            color: #ffffff;
-            margin-bottom: 10px;
-        }
-
-        .card p {
-            line-height: 1.7;
-            margin: 6px 0;
-            color: #c8d3dc;
-        }
-
-        h4, h5 {
-            margin-top: 20px;
-            color: #4fd1c5;
-            font-weight: 600;
-        }
-
-        .meteo-table {
-            margin-top: 10px;
-            border-collapse: separate;
-            border-spacing: 0;
-            width: 100%;
-            font-size: 15px;
-            border-radius: 12px;
-            overflow: hidden;
-        }
-
-        .meteo-table thead tr {
-            background-color: #1e2a38;
-        }
-
-        .meteo-table th, .meteo-table td {
-            padding: 12px;
-            text-align: center;
-            color: #e1e8ed;
-        }
-
-        .meteo-table tbody tr:nth-child(odd) {
-            background-color: #151d28;
-        }
-
-        .meteo-table tbody tr:nth-child(even) {
-            background-color: #1a2332;
-        }
-
-        .stMarkdown > h4 {
-            margin-top: 30px;
-            color: #fbbf24;
-        }
-
-    </style>
-""", unsafe_allow_html=True)
-
-st.markdown("<h1 style='text-align: center;'>🌍 City Fighting </h1>", unsafe_allow_html=True)
-st.markdown("<hr>", unsafe_allow_html=True)
-
-
-# Liste déroulante pour sélectionner les deux villes à comparer
-ville_list = get_all_villes()
-
+# === UI Principal ===
+st.title("🌍 City Fighting")  
+villes = get_all_villes()
 col1, col2 = st.columns(2)
-
 with col1:
-    ville1 = st.selectbox("🏙️ Choisissez la première ville", ville_list)
+    ville1 = st.selectbox("Ville 1", villes)
 with col2:
-    ville2 = st.selectbox("🏙️ Choisissez la deuxième ville", ville_list, index=1)
+    ville2 = st.selectbox("Ville 2", villes, index=1)
 
-# === Filtre global pour les POIs (valable pour les deux villes) ===
+data1 = get_ville_data(ville1)
+data2 = get_ville_data(ville2)
 
-
-# Récupération des données pour les deux villes sélectionnées
-data_ville1 = get_ville_data(ville1)
-data_ville2 = get_ville_data(ville2)
-
-# Affichage des cartes et fiches détaillées par ville
-if data_ville1 and data_ville2:
-
-
-    for col, data in zip([col1, col2], [data_ville1, data_ville2]):
+if data1 and data2:
+    # Affichage par ville
+    for col, data in zip([col1, col2], [data1, data2]):
         with col:
-            st.markdown(f"""
-                <div class='card'>
-                    <h3><strong>📍{data['nom']}</strong></h3>
-                    <p><strong>Population :</strong> {data['population']} habitants</p>
-                    <p><strong>Superficie :</strong> {data['superficie_km2']} km²</p>
-                    <p><strong>Densité :</strong> {data['densite_hab_km2']} hab/km²</p>
-                    <hr>
-                    <h3>🌤️ Météo actuelle</h3>
-                    <p>Température : {data['meteo']['temp']} °C</p>
-                    <p>{data['meteo']['statut']}</p>
-            """, unsafe_allow_html=True)
-
+            st.subheader(data['nom'])
+            st.write(f"Population: {data['population']} | Superficie: {data['superficie_km2']} km² | Densité: {data['densite_hab_km2']}")
+            st.write(f"🌤️ **Météo actuelle**: {data['meteo']['temp']} °C, {data['meteo']['statut']}")
             if data['meteo']['previsions']:
-                meteo_df = pd.DataFrame(data['meteo']['previsions'])
-                meteo_df.columns = ["Date", "Temp. Min (°C)", "Temp. Max (°C)", "Précip. (mm)"]
-                st.markdown("<h4>📅 Prévisions météo (7 jours)</h4>", unsafe_allow_html=True)
-                st.markdown(meteo_df.to_html(classes="meteo-table", index=False), unsafe_allow_html=True)
+                dfm = pd.DataFrame(data['meteo']['previsions'])
+                dfm.columns = ["Date","Temp. Min","Temp. Max","Précip."]
+                st.table(dfm)
 
-            
-            # Carte interactive avec folium
-            st.markdown("<h4>📍 Carte interactive</h4>", unsafe_allow_html=True)
-            types_disponibles = ["école", "hôpitaux", "parc", "gare"]
-            types_selectionnes = st.multiselect(
-                "📍 Filtrer les types de points d’intérêt à afficher :",
-                options=types_disponibles,
-                default=[],
-                key=f"filter_{data['nom']}"
-            )
+            # Carte et POIs (lazy)
+            filt = st.multiselect("POI à afficher", ["école","hôpitaux","parc","gare"], key=data['nom'])
+            pois = get_pois_from_overpass(data['latitude'], data['longitude']) if filt else []
+            m = folium.Map(location=[data['latitude'], data['longitude']], zoom_start=12)
+            for poi in pois:
+                if poi['type'] in filt:
+                    folium.Marker([poi['lat'], poi['lon']], tooltip=poi['type']).add_to(m)
+            st_folium(m, width=300, height=200)
 
-
-            display_map(
-                nom=data["nom"],
-                cp="Code postal non fourni",
-                lat=data["latitude"],
-                lon=data["longitude"],
-                temp=data["meteo"]["temp"],
-                pois=[poi for poi in data.get("pois", []) if poi["type"] in types_selectionnes]
-            )
-
-            st.markdown("""
-            <div style='margin-top: 10px; font-size: 14px;'>
-                <b>Légende des couleurs :</b><br>
-                <span style='color: purple;'>🟣 École</span> &nbsp;
-                <span style='color: red;'>🔴 Hôpital</span> &nbsp;
-                                <span style='color: green;'>🟢 Parc</span> &nbsp;
-                <span style='color: orange;'>🟠 Gare</span>
-            </div>
-            """, unsafe_allow_html=True)
-
-            # Indicateurs socio-économiques
-            st.markdown("<h4>💼 Indicateurs socio-économiques</h4>", unsafe_allow_html=True)
-            st.markdown(f"<p>Revenu médian : {data['socio']} €</p>", unsafe_allow_html=True)
-
-            # Indices qualité de vie
-            st.markdown("<h4>🏙️ Indices qualité de vie (Teleport)</h4>", unsafe_allow_html=True)
+            # Nouveaux blocs
+            st.write(f"💼 **Socio-économique**: Revenu médian = {data['socio']} €")
+            st.write("🏙️ **Qualité de vie**:")
             for cat, score in data['teleport'].items():
-                st.markdown(f"- **{cat}** : {score}/10", unsafe_allow_html=True)
+                st.write(f"- {cat}: {score}/10")
 
-
-            st.markdown("</div>", unsafe_allow_html=True)
-else:
-    st.error("Impossible de récupérer les données pour l'une des villes.")
-# === Comparaison des données logement en graphiques ===
-# Affichage des cartes et fiches détaillées par ville
-if data_ville1 and data_ville2:
+    # Comparaison logement
     labels = [ville1, ville2]
-
-    maisons = [
-        int(float(data_ville1['logement'].get('NbMaisons', 0))),
-        int(float(data_ville2['logement'].get('NbMaisons', 0)))
-    ]
-    appartements = [
-        int(float(data_ville1['logement'].get('NbApparts', 0))),
-        int(float(data_ville2['logement'].get('NbApparts', 0)))
-    ]
-    prix_m2 = [
-        round(float(data_ville1['logement'].get('Prixm2Moyen', 0)), 2),
-        round(float(data_ville2['logement'].get('Prixm2Moyen', 0)), 2)
-    ]
-
-    surface_moy = [
-        round(float(data_ville1['logement'].get('SurfaceMoy', 0)), 2),
-        round(float(data_ville2['logement'].get('SurfaceMoy', 0)), 2)
-    ]
-    
-    # Ajouter un bloc de fond pour le titre avec une largeur maximisée
-    st.markdown("""
-    <div style="text-align: center; padding: 20px; background-color: #2b2b2b; border-radius: 15px; box-shadow: 0 0 15px rgba(0, 0, 0, 0.5); width: 100%; margin-bottom: 20px;">
-        <h2 style="color: white; font-size: 30px;">📊 Comparaison des indicateurs de logement entre les deux villes </h2>
-    </div>
-    """, unsafe_allow_html=True)
-
-    
-
-    # Création d'une seule figure avec plusieurs sous-graphes
-    fig = make_subplots(rows=1, cols=4, shared_xaxes=False, subplot_titles=[ 
-        "Maisons vendues", "Appartements vendus", "Prix au m² (€/m²)", "Surface moyenne (m²)"
-    ])
-
-    metrics = [maisons, appartements, prix_m2, surface_moy]
-    y_titles = ["Maisons", "Appartements", "€", "€/m²", "m²"]
-
-    # Palette de couleurs pour chaque ville, par graphique (bleu / autre couleur)
-    colors_by_metric = [
-        ['rgb(0, 123, 255)', 'rgb(255, 206, 86)'],     # Bleu / Rose
-        ['rgb(0, 123, 255)', 'rgb(255, 206, 86)'],     # Bleu / Jaune
-        ['rgb(0, 123, 255)', 'rgb(255, 206, 86)'],     # Bleu / Turquoise
-        ['rgb(0, 123, 255)', 'rgb(255, 206, 86)']      # Bleu / Violet
-    ]
-
-    # Ajout des traces pour chaque sous-graphique
-    for i, (values, y_title, color_pair) in enumerate(zip(metrics, y_titles, colors_by_metric), start=1):
-        # Ville 1
-        fig.add_trace(
-            go.Bar(
-                name=ville1,
-                x=[labels[0]],
-                y=[values[0]],
-                text=[values[0]],
-                textposition='auto',
-                marker=dict(color=color_pair[0])
-            ),
-            row=1, col=i
-        )
-        # Ville 2
-        fig.add_trace(
-            go.Bar(
-                name=ville2,
-                x=[labels[1]],
-                y=[values[1]],
-                text=[values[1]],
-                textposition='auto',
-                marker=dict(color=color_pair[1])
-            ),
-            row=1, col=i
-        )
-        fig.update_yaxes(title_text=y_title, row=1, col=i)
-
-    # Mise en forme globale du graphique
-    fig.update_layout(
-        height=500,  # Augmenter la hauteur pour occuper plus d'espace
-        width=1800,  # Augmenter la largeur pour une meilleure utilisation de l'espace
-        barmode='group',
-        showlegend=False,
-        title_text="",
-        template="plotly_dark",
-        margin=dict(l=10, r=10, t=30, b=40)  # Ajuster les marges pour mieux utiliser l'espace
-    )
-    print("\n")      # Un saut
-    print("\n")      # Un saut
-    print("\n")      # Un saut
-    print("\n")      # Un saut
-
-    # Affichage du graphique avec le style et la largeur du conteneur
+    vmaisons = [int(float(data1['logement'].get('NbMaisons',0))), int(float(data2['logement'].get('NbMaisons',0)))]
+    vapparts = [int(float(data1['logement'].get('NbApparts',0))), int(float(data2['logement'].get('NbApparts',0)))]
+    vprix = [round(float(data1['logement'].get('Prixm2Moyen',0)),2), round(float(data2['logement'].get('Prixm2Moyen',0)),2)]
+    fig = make_subplots(rows=1, cols=3, subplot_titles=['Maisons','Appartements','Prix €/m²'])
+    fig.add_trace(go.Bar(x=labels, y=vmaisons, name='Maisons'), row=1, col=1)
+    fig.add_trace(go.Bar(x=labels, y=vapparts, name='Appartements'), row=1, col=2)
+    fig.add_trace(go.Bar(x=labels, y=vprix, name='Prix'), row=1, col=3)
+    fig.update_layout(barmode='group', template='plotly_dark')
     st.plotly_chart(fig, use_container_width=True)
 
-    # Fermer le bloc de fond
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    # === Transports en commun ===
-    st.markdown("<h2 style='text-align:center;'>🚆 Transports en commun</h2>", unsafe_allow_html=True)
-    for col, data in zip([col1, col2], [data_ville1, data_ville2]):
+    # Transports
+    st.header("🚆 Transports en commun")
+    for col, data in zip([col1, col2], [data1, data2]):
         with col:
-            st.markdown(f"<h4>Prochains départs à {data['nom']}</h4>", unsafe_allow_html=True)
+            st.subheader(f"Prochains départs à {data['nom']}")
             if data['transports']:
                 for t in data['transports']:
-                    st.markdown(f"- {t}", unsafe_allow_html=True)
+                    st.write(f"- {t}")
             else:
-                st.markdown("<p>Aucune info de transport dispo.</p>", unsafe_allow_html=True)
+                st.write("Aucune info de transport disponible.")
+else:
+    st.error("Impossible de récupérer les données pour une ou plusieurs villes.")
