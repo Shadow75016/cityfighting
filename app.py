@@ -335,14 +335,6 @@ with col2:
 data_ville1 = get_ville_data(ville1)
 data_ville2 = get_ville_data(ville2)
 
-
-    # Déplacement du filtre ici pour qu'il soit commun aux deux cartes
-types_disponibles = ["école", "hôpitaux", "parc", "gare"]
-types_selectionnes = st.multiselect(
-    "📍 Filtrer les types de points d’intérêt à afficher (valable pour les deux villes) :",
-    options=types_disponibles,
-    default=[]
-)
 if data_ville1 and data_ville2:
 
 
