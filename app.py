@@ -5,8 +5,14 @@ import pandas as pd
 import folium
 from streamlit_folium import st_folium
 
+# ---------------------------
+# Configuration de la page
+# ---------------------------
 st.set_page_config(layout="wide", page_title="City Fighting", page_icon="🌍")
 
+# ---------------------------
+# Chargement des données de logement
+# ---------------------------
 @st.cache_data
 def load_logement_data():
     dossier = os.path.dirname(__file__)
@@ -26,12 +32,15 @@ def load_logement_data():
 
 logement_data = load_logement_data()
 
+# ---------------------------
+# Récupération des limites administratives d'une commune
+# ---------------------------
 def get_commune_boundary(code_insee):
     overpass_url = "http://overpass-api.de/api/interpreter"
 
     def run_query(level):
         query = f'''
-        [out:json][timeout:25];
+        [out:json][timeout=25];
         area["ref:INSEE"="{code_insee}"][admin_level={level}]->.searchArea;
         relation["boundary"="administrative"](area.searchArea);
         out geom;
@@ -42,7 +51,7 @@ def get_commune_boundary(code_insee):
         data = response.json()
         for element in data.get("elements", []):
             if element["type"] == "relation" and "geometry" in element:
-                # ⚠️ Inverser lat/lon -> lon/lat pour Folium
+                # Inverser lat/lon -> lon/lat pour Folium
                 return [(p["lon"], p["lat"]) for p in element["geometry"]]
         return []
 
@@ -53,6 +62,9 @@ def get_commune_boundary(code_insee):
         st.warning(f"Aucune limite trouvée pour le code INSEE {code_insee}")
     return boundary
 
+# ---------------------------
+# Récupération des données d'une ville
+# ---------------------------
 def get_ville_data(ville):
     geo_url = f"https://geo.api.gouv.fr/communes?nom={ville}&fields=nom,code,population,surface,centre&format=json&geometry=centre"
     response = requests.get(geo_url).json()
@@ -73,11 +85,18 @@ def get_ville_data(ville):
         "longitude": longitude
     }
 
+# ---------------------------
+# Récupération de la liste de toutes les villes à partir de l'API
+# ---------------------------
+@st.cache_data
 def get_all_villes():
     url = "https://geo.api.gouv.fr/communes?fields=nom,population&format=json"
     response = requests.get(url).json()
     return sorted([ville['nom'] for ville in response if ville.get('population', 0) >= 20000])
 
+# ---------------------------
+# Affichage de la carte pour une ville
+# ---------------------------
 def display_map(nom, code_insee, lat, lon):
     m = folium.Map(location=[lat, lon], zoom_start=13)
     folium.Marker(
@@ -98,6 +117,9 @@ def display_map(nom, code_insee, lat, lon):
         ).add_to(m)
     st_folium(m, width=700, height=500)
 
+# ---------------------------
+# Interface utilisateur
+# ---------------------------
 ville_list = get_all_villes()
 col1, col2 = st.columns(2)
 with col1:
