@@ -2,185 +2,144 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime
-import numpy as np
 import requests
-from bs4 import BeautifulSoup
-import json
 import os
+from datetime import datetime
 from dotenv import load_dotenv
-from geopy.geocoders import Nominatim
+from test import get_all_villes, get_ville_data, load_logement_data
 
 # Load environment variables
 load_dotenv()
 
+# Load logement data
+logement_data = load_logement_data()
+
 # Configure the page
 st.set_page_config(
     page_title="City Fighting - Compare French Cities",
-    page_icon="🏰",
+    page_icon="\ud83c\udff0",
     layout="wide"
 )
 
-# Mock data for demonstration
-def get_mock_cities():
-    return [
-        {"name": "Paris", "population": 2161000, "department": "Paris", "region": "Île-de-France"},
-        {"name": "Marseille", "population": 870731, "department": "Bouches-du-Rhône", "region": "Provence-Alpes-Côte d'Azur"},
-        {"name": "Lyon", "population": 516092, "department": "Rhône", "region": "Auvergne-Rhône-Alpes"},
-        {"name": "Toulouse", "population": 479553, "department": "Haute-Garonne", "region": "Occitanie"},
-        {"name": "Nice", "population": 342669, "department": "Alpes-Maritimes", "region": "Provence-Alpes-Côte d'Azur"}
-    ]
-
-def get_mock_data(city_name):
-    return {
-        "employment": {
-            "unemployment_rate": 8.5,
-            "median_income": 30000,
-            "job_sectors": {
-                "Services": 40,
-                "Industry": 20,
-                "Commerce": 15,
-                "Public": 15,
-                "Other": 10
-            }
-        },
-        "housing": {
-            "average_price": 3500,
-            "rent_median": 800,
-            "ownership_rate": 40,
-            "vacancy_rate": 7
-        },
-        "weather": {
-            "current": {
-                "temp": 15,
-                "condition": "Clear",
-                "humidity": 60,
-                "wind_speed": 10
-            },
-            "forecast": [
-                {"date": "Mon", "min_temp": 10, "max_temp": 20},
-                {"date": "Tue", "min_temp": 11, "max_temp": 21},
-                {"date": "Wed", "min_temp": 12, "max_temp": 22},
-                {"date": "Thu", "min_temp": 11, "max_temp": 21},
-                {"date": "Fri", "min_temp": 10, "max_temp": 20}
-            ]
-        }
-    }
-
 # Title and description
-st.title("🏰 City Fighting")
+st.title("\ud83c\udff0 City Fighting")
 st.markdown("Compare cities across France on various metrics including general data, employment, housing, and weather.")
 
 # Get cities list
-cities = get_mock_cities()
-city_names = [city["name"] for city in cities]
+city_names = get_all_villes()
 
 # City selection
 col1, col2 = st.columns(2)
 
 with col1:
     city1 = st.selectbox("Select first city", city_names, key="city1")
-    
+
 with col2:
     city2 = st.selectbox("Select second city", city_names, key="city2")
 
 if city1 and city2:
     # Get data for both cities
-    city1_data = get_mock_data(city1)
-    city2_data = get_mock_data(city2)
-    
-    # Create tabs for different categories
-    tab1, tab2, tab3, tab4 = st.tabs(["General", "Employment", "Housing", "Climate"])
-    
-    with tab1:
-        st.header("General Data")
-        city1_info = next(city for city in cities if city["name"] == city1)
-        city2_info = next(city for city in cities if city["name"] == city2)
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Population", f"{city1_info['population']:,}", 
-                     f"{((city1_info['population'] - city2_info['population']) / city2_info['population'] * 100):.1f}%")
-            st.info(f"**{city1}**\n\nDepartment: {city1_info['department']}\nRegion: {city1_info['region']}")
-        
-        with col2:
-            st.metric("Population", f"{city2_info['population']:,}", 
-                     f"{((city2_info['population'] - city1_info['population']) / city1_info['population'] * 100):.1f}%")
-            st.info(f"**{city2}**\n\nDepartment: {city2_info['department']}\nRegion: {city2_info['region']}")
-    
-    with tab2:
-        st.header("Employment")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Unemployment Rate", f"{city1_data['employment']['unemployment_rate']}%",
-                     f"{(city2_data['employment']['unemployment_rate'] - city1_data['employment']['unemployment_rate']):.1f}%",
-                     delta_color="inverse")
-            st.metric("Median Income", f"€{city1_data['employment']['median_income']:,}",
-                     f"{((city1_data['employment']['median_income'] - city2_data['employment']['median_income']) / city2_data['employment']['median_income'] * 100):.1f}%")
-        
-        with col2:
-            st.metric("Unemployment Rate", f"{city2_data['employment']['unemployment_rate']}%",
-                     f"{(city1_data['employment']['unemployment_rate'] - city2_data['employment']['unemployment_rate']):.1f}%",
-                     delta_color="inverse")
-            st.metric("Median Income", f"€{city2_data['employment']['median_income']:,}",
-                     f"{((city2_data['employment']['median_income'] - city1_data['employment']['median_income']) / city1_data['employment']['median_income'] * 100):.1f}%")
-    
-    with tab3:
-        st.header("Housing")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Average Property Price", f"€{city1_data['housing']['average_price']}/m²",
-                     f"{((city2_data['housing']['average_price'] - city1_data['housing']['average_price']) / city2_data['housing']['average_price'] * 100):.1f}%",
-                     delta_color="inverse")
-            st.metric("Median Monthly Rent", f"€{city1_data['housing']['rent_median']}",
-                     f"{((city2_data['housing']['rent_median'] - city1_data['housing']['rent_median']) / city2_data['housing']['rent_median'] * 100):.1f}%",
-                     delta_color="inverse")
-        
-        with col2:
-            st.metric("Average Property Price", f"€{city2_data['housing']['average_price']}/m²",
-                     f"{((city1_data['housing']['average_price'] - city2_data['housing']['average_price']) / city1_data['housing']['average_price'] * 100):.1f}%",
-                     delta_color="inverse")
-            st.metric("Median Monthly Rent", f"€{city2_data['housing']['rent_median']}",
-                     f"{((city1_data['housing']['rent_median'] - city2_data['housing']['rent_median']) / city1_data['housing']['rent_median'] * 100):.1f}%",
-                     delta_color="inverse")
-    
-    with tab4:
-        st.header("Climate")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader(f"Current Weather in {city1}")
-            st.write(f"Temperature: {city1_data['weather']['current']['temp']}°C")
-            st.write(f"Condition: {city1_data['weather']['current']['condition']}")
-            st.write(f"Humidity: {city1_data['weather']['current']['humidity']}%")
-            st.write(f"Wind Speed: {city1_data['weather']['current']['wind_speed']} km/h")
-        
-        with col2:
-            st.subheader(f"Current Weather in {city2}")
-            st.write(f"Temperature: {city2_data['weather']['current']['temp']}°C")
-            st.write(f"Condition: {city2_data['weather']['current']['condition']}")
-            st.write(f"Humidity: {city2_data['weather']['current']['humidity']}%")
-            st.write(f"Wind Speed: {city2_data['weather']['current']['wind_speed']} km/h")
-        
-        st.subheader("5-Day Forecast")
-        forecast_cols = st.columns(5)
-        for i, (forecast1, forecast2) in enumerate(zip(city1_data['weather']['forecast'], 
-                                                     city2_data['weather']['forecast'])):
-            with forecast_cols[i]:
-                st.write(forecast1['date'])
-                st.write(f"{city1}: {forecast1['min_temp']}°C - {forecast1['max_temp']}°C")
-                st.write(f"{city2}: {forecast2['min_temp']}°C - {forecast2['max_temp']}°C")
+    city1_info = get_ville_data(city1)
+    city2_info = get_ville_data(city2)
+
+    if not city1_info or not city2_info:
+        st.error("Erreur lors de la récupération des données de la ville.")
+    else:
+        # Create tabs for different categories
+        tab1, tab2, tab3, tab4 = st.tabs(["General", "Employment", "Housing", "Climate"])
+
+        with tab1:
+            st.header("General Data")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Population", f"{city1_info['population']:,}",
+                         f"{((city1_info['population'] - city2_info['population']) / city2_info['population'] * 100):.1f}%")
+                st.info(f"**{city1_info['nom']}**\n\nSurface: {city1_info['superficie_km2']} km\u00b2\nDensit\u00e9: {city1_info['densite_hab_km2']} hab/km\u00b2")
+            with col2:
+                st.metric("Population", f"{city2_info['population']:,}",
+                         f"{((city2_info['population'] - city1_info['population']) / city1_info['population'] * 100):.1f}%")
+                st.info(f"**{city2_info['nom']}**\n\nSurface: {city2_info['superficie_km2']} km\u00b2\nDensit\u00e9: {city2_info['densite_hab_km2']} hab/km\u00b2")
+
+        with tab2:
+            st.header("Employment")
+            st.info("\u26a0\ufe0f Emploi: Donn\u00e9es statiques pour l'instant")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Unemployment Rate", "8.5%")
+                st.metric("Median Income", "\u20ac30,000")
+            with col2:
+                st.metric("Unemployment Rate", "8.0%")
+                st.metric("Median Income", "\u20ac31,500")
+
+        with tab3:
+            st.header("Housing")
+
+            logement1 = logement_data[logement_data['LIBGEO'].str.lower() == city1.lower()]
+            logement2 = logement_data[logement_data['LIBGEO'].str.lower() == city2.lower()]
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                if not logement1.empty:
+                    st.metric("Prix moyen au m\u00b2", f"{int(logement1['prix_m2_appartement'].values[0]):,} \u20ac/m\u00b2")
+                    st.metric("Taux de vacance", f"{logement1['taux_vacance'].values[0]:.1f}%")
+                else:
+                    st.warning(f"Pas de donn\u00e9es logement pour {city1}.")
+
+            with col2:
+                if not logement2.empty:
+                    st.metric("Prix moyen au m\u00b2", f"{int(logement2['prix_m2_appartement'].values[0]):,} \u20ac/m\u00b2")
+                    st.metric("Taux de vacance", f"{logement2['taux_vacance'].values[0]:.1f}%")
+                else:
+                    st.warning(f"Pas de donn\u00e9es logement pour {city2}.")
+
+        with tab4:
+            st.header("Climate")
+            api_key = os.getenv("OPENWEATHER_API_KEY")
+            if not api_key:
+                st.error("Cl\u00e9 API OpenWeather manquante !")
+            else:
+                def get_weather(city_name):
+                    url = f"https://api.openweathermap.org/data/2.5/weather?q={city_name},FR&appid={api_key}&units=metric&lang=fr"
+                    r = requests.get(url)
+                    if r.status_code == 200:
+                        return r.json()
+                    else:
+                        return None
+
+                weather1 = get_weather(city1)
+                weather2 = get_weather(city2)
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    if weather1:
+                        st.subheader(f"{city1}")
+                        st.write(f"Temp\u00e9rature: {weather1['main']['temp']} \u00b0C")
+                        st.write(f"Condition: {weather1['weather'][0]['description']}")
+                        st.write(f"Humidit\u00e9: {weather1['main']['humidity']}%")
+                        st.write(f"Vent: {weather1['wind']['speed']} km/h")
+                    else:
+                        st.warning(f"M\u00e9t\u00e9o indisponible pour {city1}.")
+
+                with col2:
+                    if weather2:
+                        st.subheader(f"{city2}")
+                        st.write(f"Temp\u00e9rature: {weather2['main']['temp']} \u00b0C")
+                        st.write(f"Condition: {weather2['weather'][0]['description']}")
+                        st.write(f"Humidit\u00e9: {weather2['main']['humidity']}%")
+                        st.write(f"Vent: {weather2['wind']['speed']} km/h")
+                    else:
+                        st.warning(f"M\u00e9t\u00e9o indisponible pour {city2}.")
+
 else:
-    st.info("👆 Select two cities to start comparing!")
+    st.info("\ud83d\udc46 Select two cities to start comparing!")
 
 # Footer
 st.markdown("---")
 st.markdown("""
 Data sources:
-- Population data: INSEE
-- Employment data: INSEE and Pôle Emploi
-- Housing data: data.gouv.fr
+- Population data: geo.api.gouv.fr
+- Employment data: static (to be replaced)
+- Housing data: api_logement_2023.csv
 - Weather data: OpenWeatherMap
 """)
