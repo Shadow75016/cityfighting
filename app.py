@@ -183,7 +183,7 @@ st.markdown("<h1 style='text-align: center;'>🌍 City Fighting </h1>", unsafe_a
 st.markdown("<hr>", unsafe_allow_html=True)
 
 # Sélection des villes
-ville_list = get_all_villes()
+ville_list = get_ville_data()
 col1, col2 = st.columns(2)
 with col1:
     ville1 = st.selectbox("🏙️ Choisissez la première ville", ville_list)
