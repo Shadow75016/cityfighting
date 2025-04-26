@@ -130,6 +130,26 @@ def get_all_villes():
     response = requests.get(url).json()
     return sorted([ville['nom'] for ville in response if ville.get('population', 0) >= 20000])
 
+def display_map(nom, lat, lon, temp):
+    m = folium.Map(location=[lat, lon], zoom_start=13)
+    folium.Marker(
+        [lat, lon],
+        tooltip=f"{nom} - {temp}°C",
+        popup=f"<b>{nom}</b><br>Température: {temp}°C",
+        icon=folium.Icon(color="blue", icon="info-sign")
+    ).add_to(m)
+    boundary_coords = get_commune_boundary(nom)
+    if boundary_coords:
+        folium.Polygon(
+            locations=boundary_coords,
+            color='blue',
+            weight=2,
+            fill=True,
+            fill_opacity=0.1,
+            tooltip="Limite administrative"
+        ).add_to(m)
+    st_folium(m, width=700, height=500)
+
 ville_list = get_all_villes()
 col1, col2 = st.columns(2)
 with col1:
@@ -148,5 +168,6 @@ if data_ville1 and data_ville2:
             st.write(f"Superficie: {data['superficie_km2']} km²")
             st.write(f"Densité: {data['densite_hab_km2']} hab/km²")
             st.write(f"Température: {data['meteo']['temp']} °C")
+            display_map(data['nom'], data['latitude'], data['longitude'], data['meteo']['temp'])
 else:
     st.error("Impossible de récupérer les données pour l'une des villes.")
