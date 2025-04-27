@@ -56,6 +56,21 @@ from streamlit_folium import st_folium
 
 st.set_page_config(layout="wide", page_title="City Fighting", page_icon="🌍")
 
+st.markdown("""
+    <hr style="margin-top: 50px; margin-bottom: 30px;">
+    <div style="display: flex; justify-content: center; align-items: center;">
+        <div style="margin-right: 30px;">
+            <a href="https://www.linkedin.com/in/mehdi-benayed-750118252/" target="_blank" style="margin-right: 10px; color: #0e76a8; text-decoration: none; font-weight: bold;">LinkedIn Mehdi</a>
+            <a href="https://github.com/Mehdi-In-Coding" target="_blank" style="color: #ffffff; text-decoration: none; font-weight: bold;">GitHub Mehdi</a>
+        </div>
+        <div>
+            <a href="https://www.linkedin.com/in/bastien-ebely-850384273/" target="_blank" style="margin-right: 10px; color: #0e76a8; text-decoration: none; font-weight: bold;">LinkedIn Bastien</a>
+            <a href="https://github.com/Shadow75016" target="_blank" style="color: #ffffff; text-decoration: none; font-weight: bold;">GitHub Bastien</a>
+        </div>
+    </div>
+""", unsafe_allow_html=True)
+
+
 
 # === Chargement des données logement (fusionnées) ===
 # Fonction pour charger et fusionner les données logement depuis plusieurs CSV
@@ -288,6 +303,8 @@ st.markdown("""
 
     </style>
 """, unsafe_allow_html=True)
+
+
 
 st.markdown("<h1 style='text-align: center;'>🌍 City Fighting </h1>", unsafe_allow_html=True)
 st.markdown("<hr>", unsafe_allow_html=True)
